@@ -15,6 +15,15 @@ export default function HomeApp() {
   const [products, setProducts] = useState([]);
   const [wallet, setWallet] = useState(null);
   const [referrals, setReferrals] = useState(0);
+  const [giftStats, setGiftStats] = useState({ anon: 0, named: 0 });
+  const [receivedGifts, setReceivedGifts] = useState([]);
+  const [cashByEvent, setCashByEvent] = useState([]);
+  const [bank, setBank] = useState({ bank_name: '', account_name: '', account_number: '' });
+  const [notif, setNotif] = useState({ gifts: true, live: true, raffles: true, promos: false });
+  const [privacy, setPrivacy] = useState({ defaultAnon: false, showBday: true, discoverable: true });
+  const [eventForm, setEventForm] = useState({ type: 'birthday', title: '', date: '', time: '', locType: 'physical', location: '', desc: '', isPublic: true });
+  const [wishlist, setWishlist] = useState([]);
+  const [cashOn, setCashOn] = useState(false);
   const [cart, setCart] = useState([]);
   const [anon, setAnon] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
@@ -38,6 +47,18 @@ export default function HomeApp() {
     setWallet(w);
     const { count } = await supabase.from('referrals').select('*', { count: 'exact', head: true }).eq('referrer_id', user.id);
     setReferrals(count || 0);
+    const { data: sent } = await supabase.from('gifts').select('is_anonymous').eq('sender_id', user.id);
+    const anonC = (sent || []).filter(g => g.is_anonymous).length;
+    setGiftStats({ anon: anonC, named: (sent || []).length - anonC });
+    const { data: cash } = await supabase.from('gifts').select('amount, event_id, events(title)').eq('is_cash', true);
+    const mineIds = (mine || []).map(e => e.id);
+    const grouped = {};
+    (cash || []).filter(g => mineIds.includes(g.event_id)).forEach(g => {
+      const t = g.events?.title || 'Event';
+      grouped[g.event_id] = { title: t, amount: (grouped[g.event_id]?.amount || 0) + Number(g.amount || 0) };
+    });
+    setCashByEvent(Object.values(grouped));
+    if (p) setBank({ bank_name: p.bank_name || '', account_name: p.account_name || '', account_number: p.account_number || '' });
   }
 
   function qualify(type) {
@@ -138,19 +159,45 @@ export default function HomeApp() {
             <p className="subtitle">Let's create a beautiful celebration!</p>
             <label className="label">Event Type</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              <button className="btn btn-sm">🎂 Birthday</button>
-              <button className="btn btn-sm btn-outline" onClick={() => setScreen('live-setup')}>🔴 Live</button>
-              <button className="btn btn-sm btn-outline" onClick={() => setScreen('upload-video')}>📹 Upload Video</button>
+              <button className={`btn btn-sm ${eventForm.type === 'birthday' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, type: 'birthday' }))}>🎂 Birthday</button>
+              <button className={`btn btn-sm ${eventForm.type === 'live' ? '' : 'btn-outline'}`} onClick={() => setScreen('live-setup')}>🔴 Live</button>
+              <button className={`btn btn-sm ${eventForm.type === 'video' ? '' : 'btn-outline'}`} onClick={() => setScreen('upload-video')}>📹 Upload Video</button>
             </div>
-            <input className="input" placeholder="Event title" id="ev-title" />
-            <input className="input" type="date" id="ev-date" />
-            <input className="input" placeholder="Location" id="ev-loc" />
+            <label className="label">Event Image</label>
+            <div className="card" style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 40 }}>🖼️</div>
+              <div style={{ fontWeight: 600 }}>Add event cover photo</div>
+              <div style={{ fontSize: 13, color: '#6B7280' }}>Required for all events</div>
+            </div>
+            <label className="label">Event Title</label>
+            <input className="input" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} placeholder="Emma's 10th Birthday Bash" />
+            <label className="label">Date</label>
+            <input className="input" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} />
+            <label className="label">Time</label>
+            <input className="input" type="time" value={eventForm.time} onChange={e => setEventForm(f => ({ ...f, time: e.target.value }))} />
+            <label className="label">Location Type</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button className={`btn btn-sm ${eventForm.locType === 'physical' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'physical' }))}>📍 Physical</button>
+              <button className={`btn btn-sm ${eventForm.locType === 'virtual' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'virtual' }))}>💻 Virtual</button>
+            </div>
+            <label className="label">Location</label>
+            <input className="input" value={eventForm.location} onChange={e => setEventForm(f => ({ ...f, location: e.target.value }))} placeholder="Venue or link" />
+            <label className="label">Description</label>
+            <input className="input" value={eventForm.desc} onChange={e => setEventForm(f => ({ ...f, desc: e.target.value }))} placeholder="Join us for cake, games, and a day full of fun!" />
+            <label className="label">Visibility</label>
+            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>🌐 Public — Anyone can view and join</div>
+              <div onClick={() => setEventForm(f => ({ ...f, isPublic: !f.isPublic }))} style={{ width: 44, height: 24, background: eventForm.isPublic ? '#DC2626' : '#E5E7EB', borderRadius: 12, position: 'relative', cursor: 'pointer' }}>
+                <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: eventForm.isPublic ? 22 : 2 }} />
+              </div>
+            </div>
             <button className="btn" onClick={async () => {
-              const title = document.getElementById('ev-title').value;
-              const date = document.getElementById('ev-date').value;
-              const loc = document.getElementById('ev-loc').value;
-              if (!supabase || !user || !title) return;
-              const { data } = await supabase.from('events').insert({ host_id: user.id, title, event_date: date || null, location: loc, is_public: true, share_code: Math.random().toString(36).slice(2, 8) }).select().single();
+              if (!supabase || !user || !eventForm.title) return;
+              const { data } = await supabase.from('events').insert({
+                host_id: user.id, title: eventForm.title, event_type: eventForm.type,
+                event_date: eventForm.date || null, location: eventForm.location,
+                is_public: eventForm.isPublic, share_code: Math.random().toString(36).slice(2, 8),
+              }).select().single();
               if (data) { setSelectedEvent(data); setScreen('build-wishlist'); load(); }
             }}>Next: Choose Wishlist Gifts</button>
           </>
@@ -159,11 +206,18 @@ export default function HomeApp() {
         {!screen && tab === 'gifts' && (
           <>
             <h1>myGifts</h1>
-            <p className="subtitle">Events you host and gifts received.</p>
+            <p className="subtitle">Events you are hosting. Tap to see gifts received.</p>
             {myEvents.map(ev => (
-              <div key={ev.id} className="card" onClick={() => openEvent(ev)} style={{ cursor: 'pointer' }}>
+              <div key={ev.id} className="card" onClick={async () => {
+                setSelectedEvent(ev);
+                if (supabase) {
+                  const { data } = await supabase.from('gifts').select('*, profiles(full_name)').eq('event_id', ev.id);
+                  setReceivedGifts(data || []);
+                }
+                setScreen('gifts-received');
+              }} style={{ cursor: 'pointer' }}>
                 <strong>{ev.title}</strong>
-                <p style={{ fontSize: 13, color: '#6B7280' }}>View gifts received</p>
+                <p style={{ fontSize: 13, color: '#6B7280' }}>{ev.event_date || 'Ongoing'}</p>
               </div>
             ))}
             {!myEvents.length && <div className="card">You haven’t hosted an event yet.</div>}
@@ -183,9 +237,18 @@ export default function HomeApp() {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}><span>Phone</span><strong>{profile?.phone || '—'}</strong></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}><span>Email</span><strong>{profile?.email || user?.email || '—'}</strong></div>
             </div>
-            <div className="card" onClick={() => setScreen('wallet')} style={{ cursor: 'pointer' }}>
-              <strong>👛 Wallet</strong>
-              <p style={{ fontSize: 13, color: '#6B7280' }}>Balance: ₦{(wallet?.balance || 0).toLocaleString()}</p>
+            <button className="btn btn-outline" onClick={() => setScreen('edit-profile')}>Edit profile</button>
+            <div className="card" style={{ marginTop: 12 }}>
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Gifting activity</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}><span>Raffle entries</span><strong>Daily · Weekly</strong></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}><span>Anonymous gifts sent</span><strong>{giftStats.anon}</strong></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}><span>Named gifts sent</span><strong>{giftStats.named}</strong></div>
+            </div>
+            <div className="card">
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Settings</div>
+              <div style={{ padding: '10px 0', borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }} onClick={() => setScreen('notif-prefs')}>Notification preferences</div>
+              <div style={{ padding: '10px 0', borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }} onClick={() => setScreen('privacy')}>Privacy</div>
+              <div style={{ padding: '10px 0', cursor: 'pointer' }} onClick={() => setScreen('wallet')}>Wallet</div>
             </div>
           </>
         )}
@@ -280,14 +343,123 @@ export default function HomeApp() {
           </>
         )}
 
+        {screen === 'gifts-received' && selectedEvent && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← myGifts</button>
+            <h1>Gifts for {selectedEvent.title}</h1>
+            {receivedGifts.length ? receivedGifts.map(g => (
+              <div key={g.id} className="card">
+                <strong>{g.is_cash ? `Cash ₦${Number(g.amount || 0).toLocaleString()}` : 'Gift item'}</strong>
+                <div style={{ fontSize: 13, color: '#6B7280' }}>{g.is_anonymous ? 'Anonymous' : (g.profiles?.full_name || 'Named')}</div>
+              </div>
+            )) : <div className="card">No gifts yet.</div>}
+          </>
+        )}
+
+        {screen === 'edit-profile' && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Profile</button>
+            <h1>Edit profile</h1>
+            <input className="input" placeholder="Full name" defaultValue={profile?.full_name || ''} id="ep-name" />
+            <input className="input" placeholder="Username" defaultValue={profile?.username || ''} id="ep-user" />
+            <input className="input" placeholder="Phone" defaultValue={profile?.phone || ''} id="ep-phone" />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input className="input" placeholder="Day" defaultValue={profile?.birthday_day || ''} id="ep-day" />
+              <input className="input" placeholder="Month (1-12)" defaultValue={profile?.birthday_month || ''} id="ep-month" />
+            </div>
+            <button className="btn" onClick={async () => {
+              const username = document.getElementById('ep-user').value.trim();
+              if (supabase && user) {
+                const { error } = await supabase.from('profiles').update({
+                  full_name: document.getElementById('ep-name').value,
+                  username,
+                  phone: document.getElementById('ep-phone').value,
+                  birthday_day: Number(document.getElementById('ep-day').value) || null,
+                  birthday_month: Number(document.getElementById('ep-month').value) || null,
+                }).eq('id', user.id);
+                if (error) { alert(error.message.includes('unique') ? 'Username already taken' : error.message); return; }
+                load(); setScreen(null);
+              }
+            }}>Save</button>
+          </>
+        )}
+
+        {screen === 'notif-prefs' && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Profile</button>
+            <h1>Notifications</h1>
+            <p className="subtitle">Choose what you want to be notified about.</p>
+            <div className="card">
+              {[['gifts','Gift received'],['live','Live streams'],['raffles','Raffle results'],['promos','Promotions']].map(([k, label]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #F3F4F6' }}>
+                  <div><strong>{label}</strong></div>
+                  <div onClick={() => setNotif(n => ({ ...n, [k]: !n[k] }))} style={{ width: 48, height: 28, background: notif[k] ? '#DC2626' : '#E5E7EB', borderRadius: 14, position: 'relative', cursor: 'pointer' }}>
+                    <div style={{ width: 24, height: 24, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: notif[k] ? 22 : 2 }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {screen === 'privacy' && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Profile</button>
+            <h1>Privacy</h1>
+            <p className="subtitle">Control how you appear when gifting.</p>
+            <div className="card">
+              {[['defaultAnon','Default anonymous'],['showBday','Show birthday publicly'],['discoverable','Profile discoverable']].map(([k, label]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #F3F4F6' }}>
+                  <div><strong>{label}</strong></div>
+                  <div onClick={() => setPrivacy(n => ({ ...n, [k]: !n[k] }))} style={{ width: 48, height: 28, background: privacy[k] ? '#DC2626' : '#E5E7EB', borderRadius: 14, position: 'relative', cursor: 'pointer' }}>
+                    <div style={{ width: 24, height: 24, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: privacy[k] ? 22 : 2 }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {screen === 'wallet' && (
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Profile</button>
             <h1>Wallet</h1>
+            <p className="subtitle">Cash gifts are held here until you withdraw.</p>
             <div className="card" style={{ textAlign: 'center', background: '#FEE2E2' }}>
               <div>Available</div>
               <div style={{ fontSize: 32, fontWeight: 800, color: '#DC2626' }}>₦{(wallet?.balance || 0).toLocaleString()}</div>
             </div>
+            <div className="card">
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Recent cash gifts</div>
+              {cashByEvent.length ? cashByEvent.map((c, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>
+                  <span>{c.title}</span><strong>₦{c.amount.toLocaleString()}</strong>
+                </div>
+              )) : <div style={{ fontSize: 13, color: '#6B7280' }}>No cash gifts yet.</div>}
+            </div>
+            <div className="card" onClick={() => setScreen('payment-method')} style={{ cursor: 'pointer' }}>
+              <div style={{ fontWeight: 700 }}>Payment method</div>
+              <div>{bank.bank_name || 'Add bank'}</div>
+              <div style={{ fontSize: 13, color: '#6B7280' }}>{bank.account_name || 'Tap to add details'}</div>
+              {bank.account_number && <div style={{ fontSize: 13 }}>•••• {bank.account_number.slice(-4)}</div>}
+            </div>
+            <button className="btn" onClick={() => {}}>Withdraw to bank</button>
+          </>
+        )}
+
+        {screen === 'payment-method' && (
+          <>
+            <button onClick={() => setScreen('wallet')} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Wallet</button>
+            <h1>Payment method</h1>
+            <input className="input" placeholder="Bank" value={bank.bank_name} onChange={e => setBank(b => ({ ...b, bank_name: e.target.value }))} />
+            <input className="input" placeholder="Bank account name" value={bank.account_name} onChange={e => setBank(b => ({ ...b, account_name: e.target.value }))} />
+            <input className="input" placeholder="Bank account number" value={bank.account_number} onChange={e => setBank(b => ({ ...b, account_number: e.target.value }))} />
+            <button className="btn" onClick={async () => {
+              if (supabase && user) {
+                await supabase.from('profiles').update(bank).eq('id', user.id);
+                setScreen('wallet');
+              }
+            }}>Save</button>
           </>
         )}
 
@@ -295,11 +467,20 @@ export default function HomeApp() {
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>Choose Wishlist</h1>
-            <button className="btn btn-sm" style={{ marginBottom: 8 }} onClick={() => setCart(products)}>Select All</button>
+            <p className="subtitle">Pick gifts from the store. These will be shown to friends, guests, and the public.</p>
+            <button className="btn btn-outline" style={{ marginBottom: 12 }} onClick={() => setWishlist(products)}>Select All</button>
+            <div className="card" onClick={() => setCashOn(c => !c)} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+              <div style={{ fontSize: 28 }}>💵</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700 }}>Cash Gift</div>
+                <div style={{ fontSize: 13, color: '#6B7280' }}>Let people send ₦25,000 / ₦50,000 / ₦100,000</div>
+              </div>
+              <span className="tag">{cashOn ? 'Added' : 'Not added'}</span>
+            </div>
             {products.map(p => (
-              <div key={p.id} className="card" onClick={() => toggleCart(p)} style={{ cursor: 'pointer' }}>
+              <div key={p.id} className="card" onClick={() => setWishlist(w => w.find(x => x.id === p.id) ? w.filter(x => x.id !== p.id) : [...w, p])} style={{ cursor: 'pointer', border: wishlist.find(x => x.id === p.id) ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
                 <strong>{p.name}</strong> — ₦{Number(p.price).toLocaleString()}
-                {cart.find(x => x.id === p.id) && <span className="tag tag-red">Added</span>}
+                {wishlist.find(x => x.id === p.id) && <span className="tag tag-red">Added</span>}
               </div>
             ))}
             <button className="btn" onClick={() => setScreen('event-created')}>Create Event</button>
