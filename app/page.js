@@ -1,9 +1,9 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '../lib/supabase';
 
-export default function Landing() {
+function LandingInner() {
   const router = useRouter();
   const search = useSearchParams();
   const [form, setForm] = useState({ name: '', phone: '', email: '', day: '', month: '', password: '' });
@@ -201,5 +201,13 @@ export default function Landing() {
 
       <div className="footer">© 2026 Giftland</div>
     </div>
+  );
+}
+
+export default function Landing() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading…</div>}>
+      <LandingInner />
+    </Suspense>
   );
 }
