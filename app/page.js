@@ -1,12 +1,19 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '../lib/supabase';
 
 export default function Landing() {
   const router = useRouter();
+  const search = useSearchParams();
   const [form, setForm] = useState({ name: '', phone: '', email: '', day: '', month: '', password: '' });
   const [loading, setLoading] = useState(false);
+  const [refCode, setRefCode] = useState('');
+
+  useEffect(() => {
+    const ref = search.get('ref') || (typeof window !== 'undefined' ? localStorage.getItem('giftland_ref') : '');
+    if (ref) setRefCode(ref);
+  }, [search]);
 
   async function signup(e) {
     e.preventDefault();
@@ -18,6 +25,7 @@ export default function Landing() {
         options: { data: { full_name: form.name, phone: form.phone, birthday_day: form.day, birthday_month: form.month } },
       });
       if (!error && data.user) {
+        const code = (form.name || 'user').toLowerCase().replace(/\s+/g, '').slice(0, 10) + Math.floor(Math.random() * 99);
         await supabase.from('profiles').upsert({
           id: data.user.id,
           full_name: form.name,
@@ -25,8 +33,16 @@ export default function Landing() {
           email: form.email,
           birthday_day: Number(form.day) || null,
           birthday_month: Number(form.month) || null,
-          referral_code: (form.name || 'user').toLowerCase().replace(/\s+/g, '').slice(0, 10) + Math.floor(Math.random() * 99),
+          referral_code: code,
         });
+        if (refCode) {
+          const { data: referrer } = await supabase.from('profiles').select('id').eq('referral_code', refCode).single();
+          if (referrer) {
+            await supabase.from('profiles').update({ referred_by: referrer.id }).eq('id', data.user.id);
+            await supabase.from('referrals').insert({ referrer_id: referrer.id, referred_id: data.user.id });
+          }
+          localStorage.removeItem('giftland_ref');
+        }
       }
     }
     setLoading(false);
