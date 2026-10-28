@@ -47,13 +47,13 @@ export default function HomeApp() {
     setProducts(pr || []);
     const { data: likeRows } = await supabase.from('event_likes').select('event_id, user_id');
     const counts = {};
-    const mine = {};
+    const liked = {};
     (likeRows || []).forEach(l => {
       counts[l.event_id] = (counts[l.event_id] || 0) + 1;
-      if (l.user_id === user.id) mine[l.event_id] = true;
+      if (l.user_id === user.id) liked[l.event_id] = true;
     });
     setLikes(counts);
-    setMyLikes(mine);
+    setMyLikes(liked);
     const { data: w } = await supabase.from('wallets').select('*').eq('user_id', user.id).single();
     setWallet(w);
     const { count } = await supabase.from('referrals').select('*', { count: 'exact', head: true }).eq('referrer_id', user.id);
