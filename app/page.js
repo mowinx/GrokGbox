@@ -9,11 +9,23 @@ function LandingInner() {
   const [form, setForm] = useState({ name: '', phone: '', email: '', day: '', month: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [refCode, setRefCode] = useState('');
+  const [mode, setMode] = useState('signup');
 
   useEffect(() => {
     const ref = search.get('ref') || (typeof window !== 'undefined' ? localStorage.getItem('giftland_ref') : '');
     if (ref) setRefCode(ref);
   }, [search]);
+
+  async function signin(e) {
+    e.preventDefault();
+    setLoading(true);
+    if (supabase) {
+      const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
+      if (error) { alert(error.message); setLoading(false); return; }
+    }
+    setLoading(false);
+    router.push('/home');
+  }
 
   async function signup(e) {
     e.preventDefault();
@@ -164,19 +176,28 @@ function LandingInner() {
         <p>Join early. Complete your birthday details. Watch for eligible campaigns. Share your referral link.</p>
       </div>
 
-      <form className="signup" id="signup" onSubmit={signup}>
-        <h2>Ready to make your birthday more exciting?</h2>
-        <p style={{ textAlign: 'center', color: '#4B5563', marginBottom: 16, fontSize: 14 }}>Create your Giftland account today. Then share your referral link and invite your friends.</p>
-        <input className="input" placeholder="Full name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
-        <input className="input" placeholder="Phone number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+      <form className="signup" id="signup" onSubmit={mode === 'signup' ? signup : signin}>
+        <h2>{mode === 'signup' ? 'Ready to make your birthday more exciting?' : 'Welcome back'}</h2>
+        <p style={{ textAlign: 'center', color: '#4B5563', marginBottom: 16, fontSize: 14 }}>
+          {mode === 'signup' ? 'Create your Giftland account today. Then share your referral link and invite your friends.' : 'Sign in to your existing account.'}
+        </p>
+        {mode === 'signup' && <input className="input" placeholder="Full name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />}
+        {mode === 'signup' && <input className="input" placeholder="Phone number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />}
         <input className="input" type="email" placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
-        <div className="row">
-          <input className="input" placeholder="Birthday day" value={form.day} onChange={e => setForm({ ...form, day: e.target.value })} />
-          <input className="input" placeholder="Birthday month" value={form.month} onChange={e => setForm({ ...form, month: e.target.value })} />
-        </div>
-        <input className="input" type="password" placeholder="Create password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
-        <button className="cta cta-dark" type="submit" disabled={loading}>{loading ? 'Creating…' : 'YES! SIGN ME UP FOR GIFTLAND 🎁'}</button>
-        <p className="note">Birthday (day & month) is used for raffle eligibility. Gifts and prizes are opportunities, not guaranteed. By signing up you agree to Giftland’s terms.</p>
+        {mode === 'signup' && (
+          <div className="row">
+            <input className="input" placeholder="Birthday day" value={form.day} onChange={e => setForm({ ...form, day: e.target.value })} />
+            <input className="input" placeholder="Birthday month" value={form.month} onChange={e => setForm({ ...form, month: e.target.value })} />
+          </div>
+        )}
+        <input className="input" type="password" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
+        <button className="cta cta-dark" type="submit" disabled={loading}>
+          {loading ? 'Please wait…' : mode === 'signup' ? 'YES! SIGN ME UP FOR GIFTLAND 🎁' : 'SIGN IN'}
+        </button>
+        <p className="note" style={{ cursor: 'pointer' }} onClick={() => setMode(mode === 'signup' ? 'signin' : 'signup')}>
+          {mode === 'signup' ? 'Already have an account? Sign in' : 'New here? Create an account'}
+        </p>
+        {mode === 'signup' && <p className="note">Birthday (day & month) is used for raffle eligibility. Gifts and prizes are opportunities, not guaranteed.</p>}
       </form>
 
       <div className="section">

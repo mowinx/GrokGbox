@@ -69,6 +69,11 @@ export default function HomeApp() {
       grouped[g.event_id] = { title: t, amount: (grouped[g.event_id]?.amount || 0) + Number(g.amount || 0) };
     });
     setCashByEvent(Object.values(grouped));
+    if (p && !p.referral_code) {
+      const code = (p.full_name || 'user').toLowerCase().replace(/\s+/g, '').slice(0, 10) + Math.floor(Math.random() * 99);
+      await supabase.from('profiles').update({ referral_code: code }).eq('id', user.id);
+      p.referral_code = code;
+    }
     if (p) setBank({ bank_name: p.bank_name || '', account_name: p.account_name || '', account_number: p.account_number || '' });
   }
 
@@ -367,7 +372,7 @@ export default function HomeApp() {
             </div>
             <div className="card">
               <div style={{ fontSize: 12, color: '#6B7280' }}>YOUR REFERRAL LINK</div>
-              <div style={{ fontWeight: 700 }}>giftland.app/r/{profile?.referral_code || 'you'}</div>
+              <div style={{ fontWeight: 700 }}>{typeof window !== 'undefined' ? window.location.origin : ''}/r/{profile?.referral_code || '…'}</div>
               <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => {
                 const link = window.location.origin + '/r/' + (profile?.referral_code || '');
                 navigator.clipboard?.writeText(link);
@@ -503,14 +508,23 @@ export default function HomeApp() {
             <h1>Choose Wishlist</h1>
             <p className="subtitle">Pick gifts from the store. These will be shown to friends, guests, and the public.</p>
             <button className="btn btn-outline" style={{ marginBottom: 12 }} onClick={() => setWishlist(products)}>Select All</button>
-            <div className="card" onClick={() => setCashOn(c => !c)} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+            <div className="card" onClick={() => setCashOn(c => !c)} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', border: cashOn ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
               <div style={{ fontSize: 28 }}>💵</div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>Cash Gift</div>
-                <div style={{ fontSize: 13, color: '#6B7280' }}>Let people send ₦25,000 / ₦50,000 / ₦100,000</div>
+                <div style={{ fontSize: 13, color: '#6B7280' }}>Let people choose an amount</div>
               </div>
               <span className="tag">{cashOn ? 'Added' : 'Not added'}</span>
             </div>
+            {cashOn && (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                {[25000, 50000, 100000].map(amt => (
+                  <div key={amt} className="card" style={{ flex: 1, textAlign: 'center', margin: 0, padding: 10 }}>
+                    <strong>₦{amt.toLocaleString()}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
             {products.map(p => (
               <div key={p.id} className="card" onClick={() => setWishlist(w => w.find(x => x.id === p.id) ? w.filter(x => x.id !== p.id) : [...w, p])} style={{ cursor: 'pointer', border: wishlist.find(x => x.id === p.id) ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
                 <strong>{p.name}</strong> — ₦{Number(p.price).toLocaleString()}
@@ -556,15 +570,18 @@ export default function HomeApp() {
             }} style={{ marginBottom: 12 }} />
             {uploadPreview && <img src={uploadPreview} alt="Preview" style={{ width: '100%', borderRadius: 12, marginBottom: 12 }} />}
             <button className="btn" onClick={async () => {
-              if (!supabase || !user || !uploadPreview) return;
-              await supabase.from('events').insert({
+              if (!user) { alert('Please sign in first'); return; }
+              if (!uploadPreview) { alert('Choose a photo first'); return; }
+              if (!supabase) { alert('Database not connected'); return; }
+              const { error } = await supabase.from('events').insert({
                 host_id: user.id,
                 title: eventForm.title || 'My Celebration',
                 event_type: 'video',
-                image_url: uploadPreview,
+                image_url: uploadPreview.slice(0, 500000),
                 is_public: true,
                 share_code: Math.random().toString(36).slice(2, 8),
               });
+              if (error) { alert('Could not save: ' + error.message); return; }
               setUploadPreview(null);
               load();
               setScreen(null);
