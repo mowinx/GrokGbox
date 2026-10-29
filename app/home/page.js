@@ -39,6 +39,19 @@ export default function HomeApp() {
     if (!user) return;
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     setProfile(p);
+    const { data: code, error: codeErr } = await supabase.rpc('ensure_my_referral_code');
+    if (code) {
+      setProfile(prev => ({ ...(prev || p || {}), referral_code: code }));
+    } else if (codeErr && p && !p.referral_code) {
+      const fallback = (p.full_name || 'user').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) + Math.floor(1000 + Math.random() * 9000);
+      const { error } = await supabase.from('profiles').update({ referral_code: fallback }).eq('id', user.id);
+      if (!error) setProfile(prev => ({ ...(prev || p), referral_code: fallback }));
+    }
+    const pendingRef = typeof window !== 'undefined' ? localStorage.getItem('giftland_ref') : '';
+    if (pendingRef) {
+      const { error: claimErr } = await supabase.rpc('claim_referral', { code: pendingRef });
+      if (!claimErr) localStorage.removeItem('giftland_ref');
+    }
     const { data: ev } = await supabase.from('events').select('*').eq('is_public', true).order('created_at', { ascending: false });
     setEvents(ev || []);
     const { data: mine } = await supabase.from('events').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
@@ -69,11 +82,6 @@ export default function HomeApp() {
       grouped[g.event_id] = { title: t, amount: (grouped[g.event_id]?.amount || 0) + Number(g.amount || 0) };
     });
     setCashByEvent(Object.values(grouped));
-    if (p && !p.referral_code) {
-      const code = (p.full_name || 'user').toLowerCase().replace(/\s+/g, '').slice(0, 10) + Math.floor(Math.random() * 99);
-      await supabase.from('profiles').update({ referral_code: code }).eq('id', user.id);
-      p.referral_code = code;
-    }
     if (p) setBank({ bank_name: p.bank_name || '', account_name: p.account_name || '', account_number: p.account_number || '' });
   }
 
@@ -108,6 +116,16 @@ export default function HomeApp() {
   }
 
   function openEvent(ev) { setSelectedEvent(ev); setScreen('event-detail'); setCart([]); }
+
+  const CASH_GIFTS = [
+    { id: 'cash-25000', name: 'Cash Gift', price: 25000, is_cash: true },
+    { id: 'cash-50000', name: 'Cash Gift', price: 50000, is_cash: true },
+    { id: 'cash-100000', name: 'Cash Gift', price: 100000, is_cash: true },
+  ];
+
+  function toggleWish(item) {
+    setWishlist(list => list.some(x => x.id === item.id) ? list.filter(x => x.id !== item.id) : [...list, item]);
+  }
 
   function toggleCart(item) {
     setCart(c => c.find(x => x.id === item.id) ? c.filter(x => x.id !== item.id) : [...c, item]);
@@ -301,14 +319,24 @@ export default function HomeApp() {
             </div>
             <h2>Wishlist</h2>
             <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>Tap to add or remove</p>
-            {(products.length ? products.slice(0, 6) : [{ id: 'cash', name: 'Cash Gift', price: 0 }]).map(p => {
+            {CASH_GIFTS.map(p => {
               const on = cart.find(x => x.id === p.id);
               return (
-                <div key={p.id} className="card" onClick={() => toggleCart(p)} style={{ cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
+                <button type="button" key={p.id} className="card" onClick={() => toggleCart(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
                   <strong>{p.name}</strong>
-                  <div style={{ color: '#DC2626', fontWeight: 700 }}>{p.price ? `₦${Number(p.price).toLocaleString()}` : 'Choose amount'}</div>
+                  <div style={{ color: '#DC2626', fontWeight: 700 }}>₦{p.price.toLocaleString()}</div>
                   {on && <span className="tag tag-red">Selected</span>}
-                </div>
+                </button>
+              );
+            })}
+            {products.map(p => {
+              const on = cart.find(x => x.id === p.id);
+              return (
+                <button type="button" key={p.id} className="card" onClick={() => toggleCart(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
+                  <strong>{p.name}</strong>
+                  <div style={{ color: '#DC2626', fontWeight: 700 }}>₦{Number(p.price).toLocaleString()}</div>
+                  {on && <span className="tag tag-red">Selected</span>}
+                </button>
               );
             })}
             {cart.length > 0 && <button className="btn" onClick={() => setScreen('checkout')}>Gift items</button>}
@@ -324,7 +352,14 @@ export default function HomeApp() {
             <button className="btn" onClick={async () => {
               if (supabase && user && selectedEvent) {
                 for (const item of cart) {
-                  await supabase.from('gifts').insert({ event_id: selectedEvent.id, sender_id: user.id, product_id: item.id === 'cash' ? null : item.id, is_anonymous: anon, is_cash: item.id === 'cash', amount: item.price || 0 });
+                  await supabase.from('gifts').insert({
+                    event_id: selectedEvent.id,
+                    sender_id: user.id,
+                    product_id: item.is_cash ? null : item.id,
+                    is_anonymous: anon,
+                    is_cash: !!item.is_cash,
+                    amount: item.price || 0,
+                  });
                 }
               }
               setScreen('gift-success');
@@ -372,12 +407,16 @@ export default function HomeApp() {
             </div>
             <div className="card">
               <div style={{ fontSize: 12, color: '#6B7280' }}>YOUR REFERRAL LINK</div>
-              <div style={{ fontWeight: 700 }}>{typeof window !== 'undefined' ? window.location.origin : ''}/r/{profile?.referral_code || '…'}</div>
+              <div style={{ fontWeight: 700, wordBreak: 'break-all' }}>
+                {profile?.referral_code ? `${typeof window !== 'undefined' ? window.location.origin : ''}/?ref=${profile.referral_code}` : 'Creating your link…'}
+              </div>
               <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => {
-                const link = window.location.origin + '/r/' + (profile?.referral_code || '');
+                if (!profile?.referral_code) return;
+                const link = window.location.origin + '/?ref=' + profile.referral_code;
                 navigator.clipboard?.writeText(link);
-                alert('Referral link copied');
+                alert('Referral link copied. It opens the Giftland sign-up page.');
               }}>Copy link</button>
+              <p style={{ fontSize: 12, color: '#6B7280', marginTop: 8 }}>Friends who sign up with this link are counted on your account.</p>
             </div>
           </>
         )}
@@ -504,34 +543,46 @@ export default function HomeApp() {
 
         {screen === 'build-wishlist' && (
           <>
-            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
+            <button type="button" onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>Choose Wishlist</h1>
-            <p className="subtitle">Pick gifts from the store. These will be shown to friends, guests, and the public.</p>
-            <button className="btn btn-outline" style={{ marginBottom: 12 }} onClick={() => setWishlist(products)}>Select All</button>
-            <div className="card" onClick={() => setCashOn(c => !c)} style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', border: cashOn ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
-              <div style={{ fontSize: 28 }}>💵</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700 }}>Cash Gift</div>
-                <div style={{ fontSize: 13, color: '#6B7280' }}>Let people choose an amount</div>
-              </div>
-              <span className="tag">{cashOn ? 'Added' : 'Not added'}</span>
-            </div>
-            {cashOn && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                {[25000, 50000, 100000].map(amt => (
-                  <div key={amt} className="card" style={{ flex: 1, textAlign: 'center', margin: 0, padding: 10 }}>
-                    <strong>₦{amt.toLocaleString()}</strong>
-                  </div>
-                ))}
-              </div>
-            )}
-            {products.map(p => (
-              <div key={p.id} className="card" onClick={() => setWishlist(w => w.find(x => x.id === p.id) ? w.filter(x => x.id !== p.id) : [...w, p])} style={{ cursor: 'pointer', border: wishlist.find(x => x.id === p.id) ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
-                <strong>{p.name}</strong> — ₦{Number(p.price).toLocaleString()}
-                {wishlist.find(x => x.id === p.id) && <span className="tag tag-red">Added</span>}
-              </div>
-            ))}
-            <button className="btn" onClick={() => setScreen('event-created')}>Create Event</button>
+            <p className="subtitle">Tap a gift to add it. Tap again to remove it.</p>
+            <button type="button" className="btn btn-outline" style={{ marginBottom: 12 }} onClick={() => setWishlist([...CASH_GIFTS, ...products])}>Select All</button>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Cash gifts</div>
+            {CASH_GIFTS.map(p => {
+              const on = wishlist.some(x => x.id === p.id);
+              return (
+                <button type="button" key={p.id} className="card" onClick={() => toggleWish(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
+                  <strong>Cash · ₦{p.price.toLocaleString()}</strong>
+                  {on && <div><span className="tag tag-red">Added</span></div>}
+                </button>
+              );
+            })}
+            {products.length > 0 && <div style={{ fontWeight: 700, margin: '12px 0 8px' }}>Store gifts</div>}
+            {products.map(p => {
+              const on = wishlist.some(x => x.id === p.id);
+              return (
+                <button type="button" key={p.id} className="card" onClick={() => toggleWish(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
+                  <strong>{p.name}</strong>
+                  <div style={{ color: '#DC2626' }}>₦{Number(p.price).toLocaleString()}</div>
+                  {on && <span className="tag tag-red">Added</span>}
+                </button>
+              );
+            })}
+            {!products.length && <p style={{ fontSize: 13, color: '#6B7280' }}>Store gifts will appear here once a vendor adds them. Cash gifts are ready now.</p>}
+            <button type="button" className="btn" onClick={async () => {
+              if (!wishlist.length) { alert('Tap at least one gift to add it.'); return; }
+              if (supabase && selectedEvent) {
+                const rows = wishlist.map(item => ({
+                  event_id: selectedEvent.id,
+                  product_id: item.is_cash ? null : item.id,
+                  is_cash: !!item.is_cash,
+                  amount: item.is_cash ? item.price : item.price,
+                }));
+                const { error } = await supabase.from('wishlist_items').insert(rows);
+                if (error) { alert('Could not save wishlist: ' + error.message); return; }
+              }
+              setScreen('event-created');
+            }}>Create Event</button>
           </>
         )}
 

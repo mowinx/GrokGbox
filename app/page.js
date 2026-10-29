@@ -48,11 +48,11 @@ function LandingInner() {
           referral_code: code,
         });
         if (refCode) {
-          const { data: referrer } = await supabase.from('profiles').select('id').eq('referral_code', refCode).single();
-          if (referrer) {
-            await supabase.from('profiles').update({ referred_by: referrer.id }).eq('id', data.user.id);
-            await supabase.from('referrals').insert({ referrer_id: referrer.id, referred_id: data.user.id });
+          if (data.session) {
+            const { error: claimErr } = await supabase.rpc('claim_referral', { code: refCode });
+            if (!claimErr) localStorage.removeItem('giftland_ref');
           }
+        } else {
           localStorage.removeItem('giftland_ref');
         }
       }
@@ -178,6 +178,11 @@ function LandingInner() {
 
       <form className="signup" id="signup" onSubmit={mode === 'signup' ? signup : signin}>
         <h2>{mode === 'signup' ? 'Ready to make your birthday more exciting?' : 'Welcome back'}</h2>
+        {refCode && mode === 'signup' && (
+          <p style={{ textAlign: 'center', background: '#fff', color: '#B91C1C', borderRadius: 12, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
+            You were invited. Create your account and this sign-up counts for your friend.
+          </p>
+        )}
         <p style={{ textAlign: 'center', color: '#4B5563', marginBottom: 16, fontSize: 14 }}>
           {mode === 'signup' ? 'Create your Giftland account today. Then share your referral link and invite your friends.' : 'Sign in to your existing account.'}
         </p>
