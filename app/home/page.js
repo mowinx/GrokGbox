@@ -905,6 +905,7 @@ export default function HomeApp() {
             </div>
           </>
         )}
+        {screen === 'notifications' && (
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>Notifications</h1>
