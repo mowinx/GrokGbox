@@ -6,15 +6,30 @@ import { supabase } from '../lib/supabase';
 function LandingInner() {
   const router = useRouter();
   const search = useSearchParams();
-  const [form, setForm] = useState({ name: '', phone: '', email: '', day: '', month: '', password: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', day: '', month: '', password: '', username: '' });
   const [loading, setLoading] = useState(false);
   const [refCode, setRefCode] = useState('');
   const [mode, setMode] = useState('signup');
+  const [nameStatus, setNameStatus] = useState('');
 
   useEffect(() => {
     const ref = search.get('ref') || (typeof window !== 'undefined' ? localStorage.getItem('giftland_ref') : '');
     if (ref) setRefCode(ref);
   }, [search]);
+
+  useEffect(() => {
+    const name = form.username.trim().toLowerCase();
+    if (!name || mode !== 'signup') { setNameStatus(''); return; }
+    if (!/^[a-z0-9_]{3,20}$/.test(name)) { setNameStatus('Use 3–20 letters, numbers or _'); return; }
+    setNameStatus('Checking…');
+    const t = setTimeout(async () => {
+      if (!supabase) return;
+      const { data, error } = await supabase.rpc('username_available', { name });
+      if (error) { setNameStatus('Could not check right now'); return; }
+      setNameStatus(data ? 'Available' : 'Already taken');
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form.username, mode]);
 
   async function signin(e) {
     e.preventDefault();
@@ -31,29 +46,32 @@ function LandingInner() {
     e.preventDefault();
     setLoading(true);
     if (supabase && form.email && form.password) {
+      const username = form.username.trim().toLowerCase();
+      if (!/^[a-z0-9_]{3,20}$/.test(username) || nameStatus !== 'Available') {
+        alert('Pick an available username first');
+        setLoading(false);
+        return;
+      }
       const { data, error } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
-        options: { data: { full_name: form.name, phone: form.phone, birthday_day: form.day, birthday_month: form.month } },
+        options: { data: { full_name: form.name, phone: form.phone, birthday_day: form.day, birthday_month: form.month, username } },
       });
-      if (!error && data.user) {
-        const code = (form.name || 'user').toLowerCase().replace(/\s+/g, '').slice(0, 10) + Math.floor(Math.random() * 99);
+      if (error) { alert(error.message); setLoading(false); return; }
+      if (data.user) {
         await supabase.from('profiles').upsert({
           id: data.user.id,
           full_name: form.name,
           phone: form.phone,
           email: form.email,
+          username,
           birthday_day: Number(form.day) || null,
           birthday_month: Number(form.month) || null,
-          referral_code: code,
+          referral_code: username,
         });
-        if (refCode) {
-          if (data.session) {
-            const { error: claimErr } = await supabase.rpc('claim_referral', { code: refCode });
-            if (!claimErr) localStorage.removeItem('giftland_ref');
-          }
-        } else {
-          localStorage.removeItem('giftland_ref');
+        if (refCode && data.session) {
+          const { error: claimErr } = await supabase.rpc('claim_referral', { code: refCode });
+          if (!claimErr) localStorage.removeItem('giftland_ref');
         }
       }
     }
@@ -188,6 +206,16 @@ function LandingInner() {
         </p>
         {mode === 'signup' && <input className="input" placeholder="Full name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />}
         {mode === 'signup' && <input className="input" placeholder="Phone number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />}
+        {mode === 'signup' && (
+          <>
+            <input className="input" placeholder="Choose a username" value={form.username} onChange={e => setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })} />
+            {nameStatus && (
+              <p className="note" style={{ textAlign: 'left', marginTop: -4, color: nameStatus === 'Available' ? '#059669' : '#DC2626', fontWeight: 700 }}>
+                {nameStatus === 'Available' ? '✓ ' : ''}{nameStatus}
+              </p>
+            )}
+          </>
+        )}
         <input className="input" type="email" placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
         {mode === 'signup' && (
           <div className="row">

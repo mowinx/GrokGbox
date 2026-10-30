@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -29,6 +29,8 @@ export default function HomeApp() {
   const [cart, setCart] = useState([]);
   const [anon, setAnon] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  const [feed, setFeed] = useState([]);
+  const feedBase = useRef([]);
 
   useEffect(() => { load(); }, []);
 
@@ -52,8 +54,17 @@ export default function HomeApp() {
       const { error: claimErr } = await supabase.rpc('claim_referral', { code: pendingRef });
       if (!claimErr) localStorage.removeItem('giftland_ref');
     }
-    const { data: ev } = await supabase.from('events').select('*').eq('is_public', true).order('created_at', { ascending: false });
-    setEvents(ev || []);
+    const { data: ev } = await supabase.from('events').select('*').order('created_at', { ascending: false });
+    const list = ev || [];
+    setEvents(list.filter(e => e.is_public));
+    const seed = user.id.split('').reduce((n, c) => n + c.charCodeAt(0), 0);
+    const shuffled = [...list].sort((a, b) => {
+      const ha = (a.id.charCodeAt(0) + seed) % 97;
+      const hb = (b.id.charCodeAt(0) + seed) % 97;
+      return ha - hb;
+    });
+    feedBase.current = shuffled;
+    setFeed(shuffled.map((item, i) => ({ ...item, _k: item.id + '-' + i })));
     const { data: mine } = await supabase.from('events').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
     setMyEvents(mine || []);
     const { data: pr } = await supabase.from('products').select('*').eq('active', true);
@@ -141,14 +152,22 @@ export default function HomeApp() {
         <button style={{ background: 'none', border: 'none', fontSize: 22 }} onClick={() => setScreen('notifications')}>🔔</button>
       </div>
 
-      <div className="phone-content">
+      <div className="phone-content" onScroll={e => {
+        const el = e.currentTarget;
+        if (el.scrollTop + el.clientHeight > el.scrollHeight - 200 && feedBase.current.length) {
+          setFeed(prev => {
+            const more = feedBase.current.map((item, i) => ({ ...item, _k: item.id + '-' + prev.length + '-' + i }));
+            return [...prev, ...more];
+          });
+        }
+      }}>
         {!screen && tab === 'home' && (
           <>
             <h1>Live Celebrations</h1>
-            <p className="subtitle">Infinite scroll of birthday & event streams. Tap to gift like TikTok.</p>
-            {(events.length ? events : []).map(ev => (
-              <div key={ev.id} className="card" style={{ background: ev.image_url ? `url(${ev.image_url}) center/cover` : 'linear-gradient(135deg,#DC2626,#EF4444)', color: 'white', minHeight: 180, position: 'relative' }} onDoubleClick={() => handleDoubleTap(ev.id)}>
-                <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>LIVE</span>
+            <p className="subtitle">Scroll for more. Order is different for every person.</p>
+            {feed.map(ev => (
+              <div key={ev._k} className="card" style={{ background: ev.image_url ? `url(${ev.image_url}) center/cover` : 'linear-gradient(135deg,#DC2626,#EF4444)', color: 'white', minHeight: 180, position: 'relative' }} onDoubleClick={() => handleDoubleTap(ev.id)}>
+                <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{ev.event_type === 'video' ? 'UPLOAD' : ev.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
                 <div style={{ fontWeight: 800, fontSize: 18, marginTop: 12 }}>{ev.title}</div>
                 <div style={{ fontSize: 13, opacity: 0.9 }}>{ev.location || 'Online'}</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }} onClick={() => toggleLike(ev.id)}>
@@ -157,11 +176,11 @@ export default function HomeApp() {
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                   <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(ev)}>View Event</button>
-                  <button className="btn btn-sm" onClick={() => openEvent(ev)}>🎁 Gift</button>
+                  <button className="btn btn-sm" onClick={() => openEvent(ev)}>Gift</button>
                 </div>
               </div>
             ))}
-            {!events.length && <div className="card">No live events yet. Create one from the + button.</div>}
+            {!feed.length && <div className="card">No events yet. Create one from the + button.</div>}
           </>
         )}
 
@@ -408,13 +427,13 @@ export default function HomeApp() {
             <div className="card">
               <div style={{ fontSize: 12, color: '#6B7280' }}>YOUR REFERRAL LINK</div>
               <div style={{ fontWeight: 700, wordBreak: 'break-all' }}>
-                {profile?.referral_code ? `${typeof window !== 'undefined' ? window.location.origin : ''}/?ref=${profile.referral_code}` : 'Creating your link…'}
+                {profile?.username ? `${typeof window !== 'undefined' ? window.location.origin : ''}/?ref=${profile.username}` : 'Set a username in Edit profile first'}
               </div>
               <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => {
-                if (!profile?.referral_code) return;
-                const link = window.location.origin + '/?ref=' + profile.referral_code;
+                if (!profile?.username) return;
+                const link = window.location.origin + '/?ref=' + profile.username;
                 navigator.clipboard?.writeText(link);
-                alert('Referral link copied. It opens the Giftland sign-up page.');
+                alert('Referral link copied. Friends who sign up with it are counted for you.');
               }}>Copy link</button>
               <p style={{ fontSize: 12, color: '#6B7280', marginTop: 8 }}>Friends who sign up with this link are counted on your account.</p>
             </div>

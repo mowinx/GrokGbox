@@ -37,10 +37,10 @@ button { font-family: inherit; cursor: pointer; }
 
 /* Mobile shell */
 .phone {
-  max-width: 430px; margin: 0 auto; min-height: 100vh; background: var(--bg);
-  display: flex; flex-direction: column; position: relative;
+  max-width: 430px; margin: 0 auto; height: 100vh; background: var(--bg);
+  display: flex; flex-direction: column; position: relative; overflow: hidden;
 }
-.phone-content { flex: 1; padding: 16px; padding-bottom: 90px; }
+.phone-content { flex: 1; padding: 16px; padding-bottom: 90px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .bottom-nav {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
   width: 100%; max-width: 430px; height: 68px; background: white;
