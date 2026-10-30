@@ -39,6 +39,7 @@ export default function HomeApp() {
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [campaignForm, setCampaignForm] = useState({ title: '', shareTarget: 5, prizes: ['', '', ''] });
   const [participants, setParticipants] = useState([]);
+  const [showHint, setShowHint] = useState(true);
   const [desired, setDesired] = useState(profile?.desired_gift || '');
   const PRIZE_GIFTS = [
     { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
