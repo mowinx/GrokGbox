@@ -14,6 +14,7 @@ export default function HomeApp() {
   const [profile, setProfile] = useState(null);
   const [events, setEvents] = useState([]);
   const [myEvents, setMyEvents] = useState([]);
+  const [attending, setAttending] = useState([]);
   const [products, setProducts] = useState([]);
   const [wallet, setWallet] = useState(null);
   const [referrals, setReferrals] = useState(0);
@@ -70,9 +71,11 @@ export default function HomeApp() {
     }
     const { data: ev } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     const list = ev || [];
-    setEvents(list.filter(e => e.is_public));
+    const today = new Date().toISOString().slice(0, 10);
+    const active = list.filter(e => !e.event_date || e.event_date >= today);
+    setEvents(active.filter(e => e.is_public));
     const seed = user.id.split('').reduce((n, c) => n + c.charCodeAt(0), 0);
-    const shuffled = [...list].sort((a, b) => {
+    const shuffled = [...active].sort((a, b) => {
       const ha = (a.id.charCodeAt(0) + seed) % 97;
       const hb = (b.id.charCodeAt(0) + seed) % 97;
       return ha - hb;
@@ -81,6 +84,8 @@ export default function HomeApp() {
     setFeed(shuffled);
     const { data: mine } = await supabase.from('events').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
     setMyEvents(mine || []);
+    const { data: attending } = await supabase.from('event_attendees').select('event_id, events(*)').eq('user_id', user.id).eq('status', 'attending');
+    setAttending((attending || []).map(a => a.events).filter(Boolean));
     const { data: pr } = await supabase.from('products').select('*').eq('active', true);
     setProducts(pr || []);
     const { data: likeRows } = await supabase.from('event_likes').select('event_id, user_id');
@@ -185,42 +190,30 @@ export default function HomeApp() {
         <button style={{ background: 'none', border: 'none', fontSize: 22 }} onClick={() => setScreen('notifications')}>🔔</button>
       </div>
 
-      <div className="phone-content" style={{ scrollSnapType: 'y mandatory' }} onScroll={e => {
-        const el = e.currentTarget;
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8 && feed.length > 1) {
-          el.scrollTo({ top: 0, behavior: 'smooth' });
-        }
-      }}>
+      <div className="phone-content">
         {!screen && tab === 'home' && (
           <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h1 style={{ margin: 0 }}>Live Celebrations</h1>
-              <button className="btn btn-sm" onClick={() => router.push('/admin/login')}>Admin</button>
-            </div>
-            {showHint && <p className="subtitle" style={{ transition: 'opacity 1s', opacity: showHint ? 1 : 0 }}>Scroll for more</p>}
-            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, marginBottom: 8 }}>
-              {PRIZE_GIFTS.map(g => (
-                <label key={g.id} style={{ minWidth: 120, background: 'white', borderRadius: 12, padding: 8, border: desired === g.id ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
-                  <img src={g.image} alt={g.name} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 8 }} />
-                  <div style={{ fontSize: 12, fontWeight: 700, margin: '6px 0' }}>{g.name}</div>
-                  <input type="checkbox" checked={desired === g.id} onChange={async () => {
-                    const next = desired === g.id ? '' : g.id;
-                    setDesired(next);
-                    if (supabase && user) await supabase.from('profiles').update({ desired_gift: next }).eq('id', user.id);
-                  }} />
-                </label>
-              ))}
-            </div>
+            <h1 style={{ margin: 0 }}>Live Celebrations</h1>
+            {showHint && <p className="subtitle">Scroll for more</p>}
+            <div onScroll={e => {
+              const el = e.currentTarget;
+              const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
+              if (atEnd && feed.length > 1 && !el.dataset.looping) {
+                el.dataset.looping = '1';
+                el.scrollTo({ top: 0, behavior: 'smooth' });
+                setTimeout(() => { el.dataset.looping = ''; }, 600);
+              }
+            }} style={{ height: 'calc(100vh - 160px)', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
             {feed.map(ev => (
-              <div key={ev.id} style={{ height: 'calc(100vh - 220px)', scrollSnapAlign: 'start', borderRadius: 16, overflow: 'hidden', position: 'relative', marginBottom: 12, background: '#DC2626', color: 'white' }}>
+              <div key={ev.id} onDoubleClick={() => handleDoubleTap(ev.id)} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', background: '#000', color: 'white' }}>
                 {ev.image_url ? (
-                  <img src={ev.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img src={ev.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
                 ) : null}
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent, rgba(0,0,0,.55))' }} />
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 50%, rgba(0,0,0,.6))' }} />
                 <div style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
                   <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{ev.event_type === 'video' ? 'UPLOAD' : ev.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
                   <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{ev.title}</div>
-                  <div style={{ fontSize: 13, opacity: 0.9 }}>{ev.location || 'Online'}</div>
+                  <div style={{ fontSize: 13, opacity: 0.9 }}>{ev.event_date || ''} {ev.location ? '• ' + ev.location : ''}</div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                     <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(ev)}>View Event</button>
                     <button className="btn btn-sm" onClick={() => toggleLike(ev.id)}>♥ {likes[ev.id] || 0}</button>
@@ -228,6 +221,7 @@ export default function HomeApp() {
                 </div>
               </div>
             ))}
+            </div>
             {!feed.length && <div className="card">No events yet. Create one from the + button.</div>}
           </>
         )}
@@ -245,12 +239,13 @@ export default function HomeApp() {
                 <p style={{ fontSize: 13, color: '#6B7280' }}>Public • Anonymous gifting</p>
               </div>
             ))}
-            {eventSub === 'mine' && (myEvents.length ? myEvents : []).map(ev => (
+            {eventSub === 'mine' && (attending.length ? attending : []).map(ev => (
               <div key={ev.id} className="card" onClick={() => openEvent(ev)} style={{ cursor: 'pointer' }}>
                 <strong>{ev.title}</strong>
-                <p style={{ fontSize: 13, color: '#6B7280' }}>Your event</p>
+                <p style={{ fontSize: 13, color: '#6B7280' }}>You’re attending</p>
               </div>
             ))}
+            {eventSub === 'mine' && !attending.length && <div className="card">Open an invite link and tap I’m attending to see it here.</div>}
             {eventSub === 'raffle' && (
               <>
                 {['daily','weekly','monthly','yearly'].map(t => {
@@ -309,7 +304,7 @@ export default function HomeApp() {
               </div>
             </div>
             <button className="btn" onClick={async () => {
-              if (!supabase || !user || !eventForm.title) return;
+              if (!supabase || !user || !eventForm.title || !eventForm.date) { alert('Add a title and a date'); return; }
               const { data } = await supabase.from('events').insert({
                 host_id: user.id, title: eventForm.title, event_type: eventForm.type,
                 event_date: eventForm.date || null, location: eventForm.location,
@@ -369,15 +364,23 @@ export default function HomeApp() {
                   <img src={PRIZE_GIFTS.find(g => g.id === desired)?.image} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8 }} />
                   <div>You picked {PRIZE_GIFTS.find(g => g.id === desired)?.name} as your desired gift to be won on your birthday.</div>
                 </div>
-              ) : <div style={{ fontSize: 13, color: '#6B7280' }}>Pick one on the home screen.</div>}
+              ) : <div style={{ fontSize: 13, color: '#6B7280' }}>Chosen when you signed up.</div>}
             </div>
-            <button className="btn btn-outline" onClick={async () => { await supabase?.auth.signOut(); router.push('/'); }}>Sign out</button>
+            <div className="card">
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Event history</div>
+              {myEvents.filter(e => e.event_date && e.event_date < new Date().toISOString().slice(0, 10)).length
+                ? myEvents.filter(e => e.event_date && e.event_date < new Date().toISOString().slice(0, 10)).map(ev => (
+                  <div key={ev.id} style={{ padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}>{ev.title} · {ev.event_date}</div>
+                ))
+                : <div style={{ fontSize: 13, color: '#6B7280' }}>Ended events you hosted will appear here.</div>}
+            </div>
             <div className="card">
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Settings</div>
               <div style={{ padding: '10px 0', borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }} onClick={() => setScreen('notif-prefs')}>Notification preferences</div>
               <div style={{ padding: '10px 0', borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }} onClick={() => setScreen('privacy')}>Privacy</div>
               <div style={{ padding: '10px 0', cursor: 'pointer' }} onClick={() => setScreen('wallet')}>Wallet</div>
             </div>
+            <button className="btn btn-outline" onClick={async () => { await supabase?.auth.signOut(); router.push('/'); }}>Sign out</button>
           </>
         )}
 
@@ -386,7 +389,10 @@ export default function HomeApp() {
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>{selectedEvent.title}</h1>
             <p className="subtitle">{selectedEvent.event_date || ''} {selectedEvent.location ? '• ' + selectedEvent.location : ''}</p>
-            <div className="card" style={{ background: '#FEE2E2' }}>Public event • Anonymous gifting available</div>
+            <div className="card" style={{ background: '#F9FAFB' }}>
+              <div style={{ fontSize: 12, color: '#6B7280' }}>EVENT LINK</div>
+              <div style={{ fontWeight: 700, wordBreak: 'break-all' }}>{typeof window !== 'undefined' ? window.location.origin : ''}/e/{selectedEvent.share_code}</div>
+            </div>
             <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div><strong>Give anonymously</strong><div style={{ fontSize: 12, color: '#6B7280' }}>Host won’t see your name</div></div>
               <div onClick={() => setAnon(a => !a)} style={{ width: 48, height: 28, background: anon ? '#DC2626' : '#E5E7EB', borderRadius: 14, position: 'relative', cursor: 'pointer' }}>
@@ -674,7 +680,7 @@ export default function HomeApp() {
             <h1 style={{ textAlign: 'center' }}>Event Created!</h1>
             <div className="card">
               <div style={{ fontSize: 12, color: '#6B7280' }}>UNIQUE EVENT LINK</div>
-              <div style={{ fontWeight: 700 }}>giftland.app/e/{selectedEvent?.share_code || 'event'}</div>
+              <div style={{ fontWeight: 700 }}>{typeof window !== 'undefined' ? window.location.origin : ''}/e/{selectedEvent?.share_code || 'event'}</div>
             </div>
             <button className="btn" onClick={() => { setScreen(null); setTab('home'); }}>Done</button>
           </>
@@ -696,6 +702,8 @@ export default function HomeApp() {
             <p className="subtitle">Use a portrait photo so it fills the home screen. Video upload is coming soon.</p>
             <label className="label">Name</label>
             <input className="input" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} placeholder="Event name" />
+            <label className="label">Date</label>
+            <input className="input" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} />
             <label className="label">Type</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <button className={`btn btn-sm ${eventForm.locType === 'physical' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'physical' }))}>Physical</button>
@@ -721,11 +729,13 @@ export default function HomeApp() {
             <button className="btn" onClick={async () => {
               if (!user) { alert('Please sign in first'); return; }
               if (!eventForm.title) { alert('Add a name'); return; }
+              if (!eventForm.date) { alert('Pick a date. The event ends on that date.'); return; }
               if (!uploadPreview) { alert('Choose a photo first'); return; }
               const { data, error } = await supabase.from('events').insert({
                 host_id: user.id,
                 title: eventForm.title,
                 event_type: 'video',
+                event_date: eventForm.date,
                 location: eventForm.locType,
                 image_url: uploadPreview,
                 is_public: eventForm.isPublic,

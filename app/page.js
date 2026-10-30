@@ -52,6 +52,7 @@ function LandingInner() {
         setLoading(false);
         return;
       }
+      if (!desired) { alert('Pick one gift to win on your birthday'); setLoading(false); return; }
       const { data, error } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
@@ -68,6 +69,7 @@ function LandingInner() {
           birthday_day: Number(form.day) || null,
           birthday_month: Number(form.month) || null,
           referral_code: username,
+          desired_gift: desired || null,
         });
         if (refCode && data.session) {
           const { error: claimErr } = await supabase.rpc('claim_referral', { code: refCode });
@@ -195,6 +197,22 @@ function LandingInner() {
       </div>
 
       <form className="signup" id="signup" onSubmit={mode === 'signup' ? signup : signin}>
+        {mode === 'signup' && (
+          <>
+            <h2>Pick one gift to win on your birthday</h2>
+            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', marginBottom: 16, paddingBottom: 6 }}>
+              {PRIZES.map(g => (
+                <label key={g.id} style={{ minWidth: 140, background: 'white', borderRadius: 12, padding: 8, border: desired === g.id ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
+                  <img src={g.image} alt={g.name} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 8 }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 13 }}>
+                    <input type="radio" name="prize" checked={desired === g.id} onChange={() => setDesired(g.id)} />
+                    {g.name}
+                  </div>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
         <h2>{mode === 'signup' ? 'Ready to make your birthday more exciting?' : 'Welcome back'}</h2>
         {refCode && mode === 'signup' && (
           <p style={{ textAlign: 'center', background: '#fff', color: '#B91C1C', borderRadius: 12, padding: 10, fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
@@ -260,6 +278,9 @@ function LandingInner() {
       </div>
 
       <div className="footer">© 2026 Giftland</div>
+      <div style={{ textAlign: 'center', padding: '0 20px 32px' }}>
+        <a href="/admin/login" style={{ color: '#DC2626', fontWeight: 700, fontSize: 14 }}>Admin</a>
+      </div>
     </div>
   );
 }
