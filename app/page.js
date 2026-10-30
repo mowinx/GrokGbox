@@ -80,6 +80,15 @@ function LandingInner() {
         if (refCode && data.session) {
           const { error: claimErr } = await supabase.rpc('claim_referral', { code: refCode });
           if (!claimErr) localStorage.removeItem('giftland_ref');
+          const camp = localStorage.getItem('giftland_campaign');
+          if (camp) {
+            const { data: campaign } = await supabase.from('campaigns').select('id').eq('share_code', camp).single();
+            const { data: participant } = await supabase.from('profiles').select('id').eq('username', refCode).single();
+            if (campaign && participant) {
+              await supabase.from('campaign_shares').insert({ campaign_id: campaign.id, participant_id: participant.id, visitor_id: data.user.id });
+            }
+            localStorage.removeItem('giftland_campaign');
+          }
         }
       }
     }

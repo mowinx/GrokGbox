@@ -34,7 +34,11 @@ export default function HomeApp() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [feed, setFeed] = useState([]);
   const feedBase = useRef([]);
-  const [showHint, setShowHint] = useState(true);
+  const [campaigns, setCampaigns] = useState([]);
+  const [myCampaigns, setMyCampaigns] = useState([]);
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [campaignForm, setCampaignForm] = useState({ title: '', shareTarget: 5, prizes: ['', '', ''] });
+  const [participants, setParticipants] = useState([]);
   const [desired, setDesired] = useState(profile?.desired_gift || '');
   const PRIZE_GIFTS = [
     { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
@@ -86,7 +90,10 @@ export default function HomeApp() {
     setMyEvents(mine || []);
     const { data: attending } = await supabase.from('event_attendees').select('event_id, events(*)').eq('user_id', user.id).eq('status', 'attending');
     setAttending((attending || []).map(a => a.events).filter(Boolean));
-    const { data: pr } = await supabase.from('products').select('*').eq('active', true);
+    const { data: camps } = await supabase.from('campaigns').select('*').eq('active', true);
+    setCampaigns(camps || []);
+    const { data: mineCamps } = await supabase.from('campaigns').select('*').eq('host_id', user.id);
+    setMyCampaigns(mineCamps || []);
     setProducts(pr || []);
     const { data: likeRows } = await supabase.from('event_likes').select('event_id, user_id');
     const counts = {};
@@ -166,6 +173,15 @@ export default function HomeApp() {
 
   function openEvent(ev) { setSelectedEvent(ev); setScreen('event-detail'); setCart([]); }
 
+  async function openCampaign(c) {
+    setSelectedCampaign(c);
+    const { data: prizes } = await supabase.from('campaign_prizes').select('*, profiles(username)').eq('campaign_id', c.id);
+    const { data: parts } = await supabase.from('campaign_participants').select('*, profiles(username, full_name)').eq('campaign_id', c.id);
+    setSelectedCampaign({ ...c, prizes: prizes || [] });
+    setParticipants(parts || []);
+    setScreen('campaign-detail');
+  }
+
   const CASH_GIFTS = [
     { id: 'cash-25000', name: 'Cash Gift', price: 25000, is_cash: true },
     { id: 'cash-50000', name: 'Cash Gift', price: 50000, is_cash: true },
@@ -228,6 +244,19 @@ export default function HomeApp() {
               </div>
             ))}
             </div>
+            {campaigns.map(c => {
+              const end = c.end_date ? new Date(c.end_date + 'T00:00:00') : null;
+              const days = end ? Math.max(0, Math.ceil((end - new Date()) / 86400000)) : 0;
+              return (
+                <div key={c.id} className="card" onClick={() => { setSelectedCampaign(c); setScreen('campaign-rules'); }} style={{ cursor: 'pointer', padding: 0, overflow: 'hidden' }}>
+                  {c.image_url && <img src={c.image_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover' }} />}
+                  <div style={{ padding: 12 }}>
+                    <strong>{c.title}</strong>
+                    <div style={{ color: '#DC2626', fontWeight: 700 }}>{days} days to birthday</div>
+                  </div>
+                </div>
+              );
+            })}
             {!feed.length && <div className="card">No events yet. Create one from the + button.</div>}
           </>
         )}
@@ -267,6 +296,15 @@ export default function HomeApp() {
                   <strong>🎁 Sign Up Raffle</strong>
                   <p style={{ fontSize: 13, color: '#6B7280' }}>{referrals}/10 friends referred</p>
                 </div>
+                <button className="btn" onClick={() => setScreen('campaign-setup')}>Host a birthday campaign</button>
+                {myCampaigns.map(c => (
+                  <div key={c.id} className="card" onClick={() => openCampaign(c)} style={{ cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <strong>{c.title}</strong>
+                      <span className="tag tag-red">{c.active ? 'Active' : 'Off'}</span>
+                    </div>
+                  </div>
+                ))}
               </>
             )}
             {!events.length && eventSub === 'general' && <div className="card">No public events yet.</div>}
@@ -758,7 +796,115 @@ export default function HomeApp() {
           </>
         )}
 
-        {screen === 'notifications' && (
+        {screen === 'campaign-setup' && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
+            <h1>Host a campaign</h1>
+            <p className="subtitle">Ends on your birthday. You pay for the 3 prizes. Friends complete tasks to qualify.</p>
+            <input className="input" placeholder="Campaign name" value={campaignForm.title} onChange={e => setCampaignForm(f => ({ ...f, title: e.target.value }))} />
+            <label className="label">Campaign image (portrait)</label>
+            <input type="file" accept="image/*" onChange={e => resizeImage(e.target.files?.[0], setUploadPreview)} />
+            {uploadPreview && <img src={uploadPreview} alt="" style={{ width: '100%', borderRadius: 12, margin: '8px 0' }} />}
+            <label className="label">Share the link to at least</label>
+            <input className="input" type="number" value={campaignForm.shareTarget} onChange={e => setCampaignForm(f => ({ ...f, shareTarget: e.target.value }))} />
+            <label className="label">3 prizes to be won</label>
+            {[0,1,2].map(i => (
+              <input key={i} className="input" placeholder={'Prize ' + (i + 1)} value={campaignForm.prizes[i]} onChange={e => setCampaignForm(f => { const prizes = [...f.prizes]; prizes[i] = e.target.value; return { ...f, prizes }; })} />
+            ))}
+            <div className="card">
+              <strong>Rules</strong>
+              <p>1. Share the link to at least {campaignForm.shareTarget} friends.</p>
+              <p>2. Gift the host at least 2 items on the wishlist.</p>
+              <p>3. Leave a birthday wish for the host.</p>
+            </div>
+            <button className="btn" onClick={async () => {
+              if (!user || !campaignForm.title || campaignForm.prizes.some(p => !p)) { alert('Add a name and 3 prizes'); return; }
+              const month = String(profile?.birthday_month || 1).padStart(2, '0');
+              const day = String(profile?.birthday_day || 1).padStart(2, '0');
+              const year = new Date().getMonth() + 1 > (profile?.birthday_month || 1) ? new Date().getFullYear() + 1 : new Date().getFullYear();
+              const end = `${year}-${month}-${day}`;
+              const code = Math.random().toString(36).slice(2, 8);
+              const { data, error } = await supabase.from('campaigns').insert({
+                host_id: user.id, title: campaignForm.title, image_url: uploadPreview, end_date: end,
+                share_target: Number(campaignForm.shareTarget) || 5, share_code: code,
+              }).select().single();
+              if (error) { alert(error.message); return; }
+              await supabase.from('campaign_prizes').insert(campaignForm.prizes.map((name, i) => ({ campaign_id: data.id, name, position: i + 1 })));
+              setUploadPreview(null);
+              load();
+              setScreen(null);
+            }}>Create campaign</button>
+          </>
+        )}
+
+        {screen === 'campaign-rules' && selectedCampaign && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
+            <h1>{selectedCampaign.title}</h1>
+            {selectedCampaign.image_url && <img src={selectedCampaign.image_url} alt="" style={{ width: '100%', borderRadius: 12 }} />}
+            <div className="card">
+              <strong>Rules to join</strong>
+              <p>1. Share the link to at least {selectedCampaign.share_target} friends.</p>
+              <p>2. Gift the host at least 2 wishlist items.</p>
+              <p>3. Leave a birthday wish for the host.</p>
+            </div>
+            <button className="btn" onClick={async () => {
+              if (!user) { alert('Sign in to join'); return; }
+              const { error } = await supabase.from('campaign_participants').insert({ campaign_id: selectedCampaign.id, user_id: user.id });
+              if (error && !error.message.includes('duplicate')) { alert(error.message); return; }
+              alert('Joined. Your share link is ready on the raffle tab.');
+              setScreen(null);
+            }}>Join campaign</button>
+          </>
+        )}
+
+        {screen === 'campaign-detail' && selectedCampaign && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
+            <h1>{selectedCampaign.title}</h1>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Active</span>
+              <div onClick={async () => {
+                await supabase.from('campaigns').update({ active: !selectedCampaign.active }).eq('id', selectedCampaign.id);
+                openCampaign({ ...selectedCampaign, active: !selectedCampaign.active });
+              }} style={{ width: 44, height: 24, background: selectedCampaign.active ? '#DC2626' : '#E5E7EB', borderRadius: 12, position: 'relative' }}>
+                <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: selectedCampaign.active ? 22 : 2 }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
+              {(selectedCampaign.prizes || []).map(p => (
+                <div key={p.id} className="card" style={{ flex: 1, textAlign: 'center' }}>
+                  <strong>{p.name}</strong>
+                  <div style={{ fontSize: 20 }}>{p.profiles?.username ? '@' + p.profiles.username : '?'}</div>
+                  {!p.winner_id && (
+                    <select onChange={async e => {
+                      if (!e.target.value) return;
+                      await supabase.from('campaign_prizes').update({ winner_id: e.target.value }).eq('id', p.id);
+                      openCampaign(selectedCampaign);
+                    }}>
+                      <option value="">Award</option>
+                      {participants.map(part => <option key={part.user_id} value={part.user_id}>{part.profiles?.username}</option>)}
+                    </select>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="card">
+              <strong>Participants</strong>
+              {participants.map(part => (
+                <div key={part.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #F3F4F6' }}>
+                  <span>@{part.profiles?.username}</span>
+                  <span>{part.shares} shares</span>
+                </div>
+              ))}
+              {!participants.length && <p>No participants yet.</p>}
+            </div>
+            <div className="card">
+              <div style={{ fontSize: 12, color: '#6B7280' }}>YOUR SHARE LINK</div>
+              <div style={{ fontWeight: 700, wordBreak: 'break-all' }}>{typeof window !== 'undefined' ? window.location.origin : ''}/c/{selectedCampaign.share_code}?by={profile?.username}</div>
+            </div>
+          </>
+        )}
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>Notifications</h1>
