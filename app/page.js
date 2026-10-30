@@ -117,7 +117,7 @@ function LandingInner() {
       `}</style>
 
       <div className="hero">
-        <img className="hero-img" src="https://images.unsplash.com/photo-1530103862676-de8c9debad1d?w=800&q=80" alt="People celebrating a birthday" />
+        <img className="hero-img" src="/hero.jpg" alt="People celebrating a birthday" />
         <div className="hero-content">
           <div className="badge">🎁 BIRTHDAY SEASON</div>
           <div className="logo">Giftland</div>
@@ -219,8 +219,14 @@ function LandingInner() {
         <input className="input" type="email" placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
         {mode === 'signup' && (
           <div className="row">
-            <input className="input" placeholder="Birthday day" value={form.day} onChange={e => setForm({ ...form, day: e.target.value })} />
-            <input className="input" placeholder="Birthday month" value={form.month} onChange={e => setForm({ ...form, month: e.target.value })} />
+            <select className="input" value={form.day} onChange={e => setForm({ ...form, day: e.target.value })}>
+              <option value="">Day</option>
+              {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select className="input" value={form.month} onChange={e => setForm({ ...form, month: e.target.value })}>
+              <option value="">Month</option>
+              {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
           </div>
         )}
         <input className="input" type="password" placeholder="Password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />

@@ -1,10 +1,12 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
 export default function HomeApp() {
+  const router = useRouter();
   const [tab, setTab] = useState('home');
   const [eventSub, setEventSub] = useState('general');
   const [screen, setScreen] = useState(null);
@@ -31,8 +33,19 @@ export default function HomeApp() {
   const [selectedEvent, setSelectedEvent] = useState(null);
   const [feed, setFeed] = useState([]);
   const feedBase = useRef([]);
+  const [showHint, setShowHint] = useState(true);
+  const [desired, setDesired] = useState(profile?.desired_gift || '');
+  const PRIZE_GIFTS = [
+    { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
+    { id: 'prize-2', name: 'Gift 2', image: '/prize-2.jpg' },
+    { id: 'prize-3', name: 'Gift 3', image: '/prize-3.jpg' },
+  ];
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => setShowHint(false), 60000);
+    return () => clearTimeout(t);
+  }, []);
 
   async function load() {
     if (!supabase) return;
@@ -41,6 +54,7 @@ export default function HomeApp() {
     if (!user) return;
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     setProfile(p);
+    if (p?.desired_gift) setDesired(p.desired_gift);
     const { data: code, error: codeErr } = await supabase.rpc('ensure_my_referral_code');
     if (code) {
       setProfile(prev => ({ ...(prev || p || {}), referral_code: code }));
@@ -64,7 +78,7 @@ export default function HomeApp() {
       return ha - hb;
     });
     feedBase.current = shuffled;
-    setFeed(shuffled.map((item, i) => ({ ...item, _k: item.id + '-' + i })));
+    setFeed(shuffled);
     const { data: mine } = await supabase.from('events').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
     setMyEvents(mine || []);
     const { data: pr } = await supabase.from('products').select('*').eq('active', true);
@@ -126,6 +140,25 @@ export default function HomeApp() {
     if (!myLikes[eventId]) toggleLike(eventId);
   }
 
+  function resizeImage(file, setter) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 800;
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        setter(canvas.toDataURL('image/jpeg', 0.7));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   function openEvent(ev) { setSelectedEvent(ev); setScreen('event-detail'); setCart([]); }
 
   const CASH_GIFTS = [
@@ -152,31 +185,46 @@ export default function HomeApp() {
         <button style={{ background: 'none', border: 'none', fontSize: 22 }} onClick={() => setScreen('notifications')}>🔔</button>
       </div>
 
-      <div className="phone-content" onScroll={e => {
+      <div className="phone-content" style={{ scrollSnapType: 'y mandatory' }} onScroll={e => {
         const el = e.currentTarget;
-        if (el.scrollTop + el.clientHeight > el.scrollHeight - 200 && feedBase.current.length) {
-          setFeed(prev => {
-            const more = feedBase.current.map((item, i) => ({ ...item, _k: item.id + '-' + prev.length + '-' + i }));
-            return [...prev, ...more];
-          });
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8 && feed.length > 1) {
+          el.scrollTo({ top: 0, behavior: 'smooth' });
         }
       }}>
         {!screen && tab === 'home' && (
           <>
-            <h1>Live Celebrations</h1>
-            <p className="subtitle">Scroll for more. Order is different for every person.</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h1 style={{ margin: 0 }}>Live Celebrations</h1>
+              <button className="btn btn-sm" onClick={() => router.push('/admin/login')}>Admin</button>
+            </div>
+            {showHint && <p className="subtitle" style={{ transition: 'opacity 1s', opacity: showHint ? 1 : 0 }}>Scroll for more</p>}
+            <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 8, marginBottom: 8 }}>
+              {PRIZE_GIFTS.map(g => (
+                <label key={g.id} style={{ minWidth: 120, background: 'white', borderRadius: 12, padding: 8, border: desired === g.id ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
+                  <img src={g.image} alt={g.name} style={{ width: '100%', height: 80, objectFit: 'cover', borderRadius: 8 }} />
+                  <div style={{ fontSize: 12, fontWeight: 700, margin: '6px 0' }}>{g.name}</div>
+                  <input type="checkbox" checked={desired === g.id} onChange={async () => {
+                    const next = desired === g.id ? '' : g.id;
+                    setDesired(next);
+                    if (supabase && user) await supabase.from('profiles').update({ desired_gift: next }).eq('id', user.id);
+                  }} />
+                </label>
+              ))}
+            </div>
             {feed.map(ev => (
-              <div key={ev._k} className="card" style={{ background: ev.image_url ? `url(${ev.image_url}) center/cover` : 'linear-gradient(135deg,#DC2626,#EF4444)', color: 'white', minHeight: 180, position: 'relative' }} onDoubleClick={() => handleDoubleTap(ev.id)}>
-                <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{ev.event_type === 'video' ? 'UPLOAD' : ev.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
-                <div style={{ fontWeight: 800, fontSize: 18, marginTop: 12 }}>{ev.title}</div>
-                <div style={{ fontSize: 13, opacity: 0.9 }}>{ev.location || 'Online'}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }} onClick={() => toggleLike(ev.id)}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill={myLikes[ev.id] ? '#fff' : 'none'} stroke="#fff" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                  <span style={{ fontWeight: 700 }}>{likes[ev.id] || 0}</span>
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                  <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(ev)}>View Event</button>
-                  <button className="btn btn-sm" onClick={() => openEvent(ev)}>Gift</button>
+              <div key={ev.id} style={{ height: 'calc(100vh - 220px)', scrollSnapAlign: 'start', borderRadius: 16, overflow: 'hidden', position: 'relative', marginBottom: 12, background: '#DC2626', color: 'white' }}>
+                {ev.image_url ? (
+                  <img src={ev.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : null}
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent, rgba(0,0,0,.55))' }} />
+                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
+                  <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{ev.event_type === 'video' ? 'UPLOAD' : ev.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
+                  <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{ev.title}</div>
+                  <div style={{ fontSize: 13, opacity: 0.9 }}>{ev.location || 'Online'}</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(ev)}>View Event</button>
+                    <button className="btn btn-sm" onClick={() => toggleLike(ev.id)}>♥ {likes[ev.id] || 0}</button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -235,11 +283,9 @@ export default function HomeApp() {
               <button className={`btn btn-sm ${eventForm.type === 'video' ? '' : 'btn-outline'}`} onClick={() => setScreen('upload-video')}>📹 Upload Video</button>
             </div>
             <label className="label">Event Image</label>
-            <div className="card" style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 40 }}>🖼️</div>
-              <div style={{ fontWeight: 600 }}>Add event cover photo</div>
-              <div style={{ fontSize: 13, color: '#6B7280' }}>Required for all events</div>
-            </div>
+            <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>Use a portrait photo so it fills the home screen.</p>
+            <input type="file" accept="image/*" onChange={e => resizeImage(e.target.files?.[0], setUploadPreview)} />
+            {uploadPreview && <img src={uploadPreview} alt="" style={{ width: '100%', borderRadius: 12, margin: '8px 0' }} />}
             <label className="label">Event Title</label>
             <input className="input" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} placeholder="Emma's 10th Birthday Bash" />
             <label className="label">Date</label>
@@ -268,6 +314,7 @@ export default function HomeApp() {
                 host_id: user.id, title: eventForm.title, event_type: eventForm.type,
                 event_date: eventForm.date || null, location: eventForm.location,
                 is_public: eventForm.isPublic, share_code: Math.random().toString(36).slice(2, 8),
+                image_url: uploadPreview || null,
               }).select().single();
               if (data) { setSelectedEvent(data); setScreen('build-wishlist'); load(); }
             }}>Next: Choose Wishlist Gifts</button>
@@ -315,6 +362,16 @@ export default function HomeApp() {
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F4F6' }}><span>Anonymous gifts sent</span><strong>{giftStats.anon}</strong></div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}><span>Named gifts sent</span><strong>{giftStats.named}</strong></div>
             </div>
+            <div className="card">
+              <div style={{ fontWeight: 700, marginBottom: 8 }}>Birthday wish</div>
+              {desired ? (
+                <div>
+                  <img src={PRIZE_GIFTS.find(g => g.id === desired)?.image} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8 }} />
+                  <div>You picked {PRIZE_GIFTS.find(g => g.id === desired)?.name} as your desired gift to be won on your birthday.</div>
+                </div>
+              ) : <div style={{ fontSize: 13, color: '#6B7280' }}>Pick one on the home screen.</div>}
+            </div>
+            <button className="btn btn-outline" onClick={async () => { await supabase?.auth.signOut(); router.push('/'); }}>Sign out</button>
             <div className="card">
               <div style={{ fontWeight: 700, marginBottom: 8 }}>Settings</div>
               <div style={{ padding: '10px 0', borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }} onClick={() => setScreen('notif-prefs')}>Notification preferences</div>
@@ -461,8 +518,14 @@ export default function HomeApp() {
             <input className="input" placeholder="Username" defaultValue={profile?.username || ''} id="ep-user" />
             <input className="input" placeholder="Phone" defaultValue={profile?.phone || ''} id="ep-phone" />
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="input" placeholder="Day" defaultValue={profile?.birthday_day || ''} id="ep-day" />
-              <input className="input" placeholder="Month (1-12)" defaultValue={profile?.birthday_month || ''} id="ep-month" />
+              <select className="input" id="ep-day" defaultValue={profile?.birthday_day || ''}>
+                <option value="">Day</option>
+                {Array.from({ length: 31 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}</option>)}
+              </select>
+              <select className="input" id="ep-month" defaultValue={profile?.birthday_month || ''}>
+                <option value="">Month</option>
+                {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+              </select>
             </div>
             <button className="btn" onClick={async () => {
               const username = document.getElementById('ep-user').value.trim();
@@ -630,28 +693,48 @@ export default function HomeApp() {
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>Upload Photo</h1>
-            <p className="subtitle">Add a cover photo for your celebration. Video upload is coming soon.</p>
-            <input type="file" accept="image/*" capture="environment" onChange={e => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              const reader = new FileReader();
-              reader.onload = () => setUploadPreview(reader.result);
-              reader.readAsDataURL(file);
-            }} style={{ marginBottom: 12 }} />
-            {uploadPreview && <img src={uploadPreview} alt="Preview" style={{ width: '100%', borderRadius: 12, marginBottom: 12 }} />}
+            <p className="subtitle">Use a portrait photo so it fills the home screen. Video upload is coming soon.</p>
+            <label className="label">Name</label>
+            <input className="input" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} placeholder="Event name" />
+            <label className="label">Type</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button className={`btn btn-sm ${eventForm.locType === 'physical' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'physical' }))}>Physical</button>
+              <button className={`btn btn-sm ${eventForm.locType === 'virtual' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'virtual' }))}>Virtual</button>
+            </div>
+            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>Share with the public</div>
+              <div onClick={() => setEventForm(f => ({ ...f, isPublic: !f.isPublic }))} style={{ width: 44, height: 24, background: eventForm.isPublic ? '#DC2626' : '#E5E7EB', borderRadius: 12, position: 'relative', cursor: 'pointer' }}>
+                <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: eventForm.isPublic ? 22 : 2 }} />
+              </div>
+            </div>
+            <input type="file" accept="image/*" onChange={e => resizeImage(e.target.files?.[0], setUploadPreview)} />
+            {uploadPreview && <img src={uploadPreview} alt="Preview" style={{ width: '100%', borderRadius: 12, margin: '8px 0' }} />}
+            <div style={{ fontWeight: 700, margin: '12px 0 8px' }}>Cash gifts for this upload</div>
+            {CASH_GIFTS.map(p => {
+              const on = wishlist.some(x => x.id === p.id);
+              return (
+                <button type="button" key={p.id} className="card" onClick={() => toggleWish(p)} style={{ display: 'block', width: '100%', textAlign: 'left', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
+                  Cash · ₦{p.price.toLocaleString()} {on ? '· Added' : ''}
+                </button>
+              );
+            })}
             <button className="btn" onClick={async () => {
               if (!user) { alert('Please sign in first'); return; }
+              if (!eventForm.title) { alert('Add a name'); return; }
               if (!uploadPreview) { alert('Choose a photo first'); return; }
-              if (!supabase) { alert('Database not connected'); return; }
-              const { error } = await supabase.from('events').insert({
+              const { data, error } = await supabase.from('events').insert({
                 host_id: user.id,
-                title: eventForm.title || 'My Celebration',
+                title: eventForm.title,
                 event_type: 'video',
-                image_url: uploadPreview.slice(0, 500000),
-                is_public: true,
+                location: eventForm.locType,
+                image_url: uploadPreview,
+                is_public: eventForm.isPublic,
                 share_code: Math.random().toString(36).slice(2, 8),
-              });
+              }).select().single();
               if (error) { alert('Could not save: ' + error.message); return; }
+              if (wishlist.length && data) {
+                await supabase.from('wishlist_items').insert(wishlist.map(item => ({ event_id: data.id, is_cash: true, amount: item.price })));
+              }
               setUploadPreview(null);
               load();
               setScreen(null);

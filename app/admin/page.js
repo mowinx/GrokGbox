@@ -1,22 +1,58 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '../../lib/supabase';
 
-const views = ['dashboard', 'vendors', 'hosts', 'orders', 'transactions', 'reports', 'system'];
+const views = ['dashboard', 'vendors', 'hosts', 'orders', 'transactions', 'reports', 'gifts', 'system'];
 
 export default function Admin() {
+  const router = useRouter();
   const [view, setView] = useState('dashboard');
+  const [ok, setOk] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [form, setForm] = useState({ name: '', price: '', category: '' });
+
+  useEffect(() => {
+    (async () => {
+      if (!supabase) return;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { router.push('/admin/login'); return; }
+      const { data } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+      if (data?.role !== 'admin') { router.push('/admin/login'); return; }
+      setOk(true);
+      loadProducts();
+    })();
+  }, []);
+
+  async function loadProducts() {
+    const { data } = await supabase.from('products').select('*').order('created_at', { ascending: false });
+    setProducts(data || []);
+  }
+
+  async function addProduct(e) {
+    e.preventDefault();
+    const { error } = await supabase.from('products').insert({ name: form.name, price: Number(form.price), category: form.category, active: true });
+    if (error) { alert(error.message); return; }
+    setForm({ name: '', price: '', category: '' });
+    loadProducts();
+  }
+
+  if (!ok) return <div style={{ padding: 40 }}>Checking admin access…</div>;
+
   return (
     <div className="desktop">
-      <div className="sidebar">
-        <div className="logo">🎁 Giftland Admin</div>
+      <div className="sidebar" style={{ background: '#7F1D1D' }}>
+        <div className="logo">Giftland Admin</div>
         {views.map(v => (
           <button key={v} className={view === v ? 'active' : ''} onClick={() => setView(v)} style={{ textTransform: 'capitalize' }}>{v}</button>
         ))}
+        <button onClick={async () => { await supabase.auth.signOut(); router.push('/admin/login'); }}>Sign out</button>
       </div>
       <div className="main">
         {view === 'dashboard' && (
           <>
             <h1>Admin Dashboard</h1>
+            <p className="subtitle">Overview of vendors, hosts, and platform activity</p>
             <div className="stats">
               <div className="stat"><div>Vendors</div><div className="value">48</div></div>
               <div className="stat"><div>Hosts</div><div className="value">312</div></div>
@@ -25,62 +61,27 @@ export default function Admin() {
             </div>
           </>
         )}
-        {view === 'vendors' && (
+        {view === 'gifts' && (
           <>
-            <h1>Vendors</h1>
-            <div className="card">
-              <table>
-                <tr><th>Vendor</th><th>Status</th><th></th></tr>
-                <tr><td>Shoprite Lagos</td><td><span className="tag tag-green">Approved</span></td><td><button className="btn btn-sm btn-outline">View</button></td></tr>
-                <tr><td>Spar VI</td><td><span className="tag tag-gold">Pending</span></td><td><button className="btn btn-sm">Approve</button></td></tr>
-              </table>
-            </div>
+            <h1>Gift items</h1>
+            <p className="subtitle">These appear on host wishlists.</p>
+            <form className="card" onSubmit={addProduct}>
+              <input className="input" placeholder="Gift name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              <input className="input" placeholder="Price" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} />
+              <input className="input" placeholder="Category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
+              <button className="btn" type="submit">Add gift item</button>
+            </form>
+            {products.map(p => (
+              <div key={p.id} className="card"><strong>{p.name}</strong> — ₦{Number(p.price).toLocaleString()}</div>
+            ))}
           </>
         )}
-        {view === 'hosts' && (
-          <>
-            <h1>Hosts</h1>
-            <div className="card">
-              <table>
-                <tr><th>Host</th><th>Events</th><th>KYC</th></tr>
-                <tr><td>Adaeze Okonkwo</td><td>4</td><td><span className="tag tag-green">Verified</span></td></tr>
-                <tr><td>Amaka Kalu</td><td>1</td><td><span className="tag tag-gold">Pending</span></td></tr>
-              </table>
-            </div>
-          </>
-        )}
-        {view === 'orders' && (
-          <>
-            <h1>Orders</h1>
-            <div className="card">
-              <table>
-                <tr><th>Order</th><th>Host</th><th>Vendor</th><th>Status</th></tr>
-                <tr><td>#GL-10482</td><td>Emma’s Birthday</td><td>Shoprite</td><td><span className="tag tag-green">Delivered</span></td></tr>
-                <tr><td>#GL-10491</td><td>Wedding</td><td>Game</td><td><span className="tag tag-gold">Processing</span></td></tr>
-              </table>
-            </div>
-          </>
-        )}
-        {view === 'transactions' && (
-          <>
-            <h1>Transactions</h1>
-            <div className="stats">
-              <div className="stat"><div>Fees (month)</div><div className="value">₦186K</div></div>
-              <div className="stat"><div>Cash held</div><div className="value">₦2.4M</div></div>
-              <div className="stat"><div>Fee rate</div><div className="value">2.5%</div></div>
-            </div>
-          </>
-        )}
+        {view === 'vendors' && <h1>Vendors</h1>}
+        {view === 'hosts' && <h1>Hosts</h1>}
+        {view === 'orders' && <h1>Orders</h1>}
+        {view === 'transactions' && <h1>Transactions</h1>}
         {view === 'reports' && <h1>Reports</h1>}
-        {view === 'system' && (
-          <>
-            <h1>System</h1>
-            <div className="stats">
-              <div className="stat"><div>Uptime</div><div className="value">99.97%</div></div>
-              <div className="stat"><div>Active users</div><div className="value">1,842</div></div>
-            </div>
-          </>
-        )}
+        {view === 'system' && <h1>System</h1>}
       </div>
     </div>
   );
