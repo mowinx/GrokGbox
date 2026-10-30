@@ -197,15 +197,21 @@ export default function HomeApp() {
             {showHint && <p className="subtitle">Scroll for more</p>}
             <div onScroll={e => {
               const el = e.currentTarget;
-              const atEnd = el.scrollTop + el.clientHeight >= el.scrollHeight - 4;
-              if (atEnd && feed.length > 1 && !el.dataset.looping) {
+              const itemH = el.clientHeight;
+              if (!itemH || feed.length < 2 || el.dataset.looping) return;
+              if (el.scrollTop + itemH >= el.scrollHeight - 8) {
                 el.dataset.looping = '1';
-                el.scrollTo({ top: 0, behavior: 'smooth' });
-                setTimeout(() => { el.dataset.looping = ''; }, 600);
+                setFeed(prev => [...prev, { ...prev[0], _k: prev[0].id + '-' + Date.now() }]);
+                setTimeout(() => { el.dataset.looping = ''; }, 300);
+              } else if (el.scrollTop >= itemH) {
+                el.dataset.looping = '1';
+                el.scrollTop = el.scrollTop - itemH;
+                setFeed(prev => prev.slice(1));
+                setTimeout(() => { el.dataset.looping = ''; }, 50);
               }
             }} style={{ height: 'calc(100vh - 160px)', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
             {feed.map(ev => (
-              <div key={ev.id} onDoubleClick={() => handleDoubleTap(ev.id)} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', background: '#000', color: 'white' }}>
+              <div key={ev._k || ev.id} onDoubleClick={() => handleDoubleTap(ev.id)} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', background: '#000', color: 'white' }}>
                 {ev.image_url ? (
                   <img src={ev.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
                 ) : null}

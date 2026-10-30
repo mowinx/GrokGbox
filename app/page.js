@@ -11,6 +11,12 @@ function LandingInner() {
   const [refCode, setRefCode] = useState('');
   const [mode, setMode] = useState('signup');
   const [nameStatus, setNameStatus] = useState('');
+  const [desired, setDesired] = useState('');
+  const PRIZES = [
+    { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
+    { id: 'prize-2', name: 'Gift 2', image: '/prize-2.jpg' },
+    { id: 'prize-3', name: 'Gift 3', image: '/prize-3.jpg' },
+  ];
 
   useEffect(() => {
     const ref = search.get('ref') || (typeof window !== 'undefined' ? localStorage.getItem('giftland_ref') : '');
