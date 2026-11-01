@@ -41,8 +41,14 @@ function LandingInner() {
     e.preventDefault();
     setLoading(true);
     if (supabase) {
-      const { error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email: form.email, password: form.password });
       if (error) { alert(error.message); setLoading(false); return; }
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', data.user.id).single();
+      setLoading(false);
+      if (profile?.role === 'admin') {
+        router.push('/admin');
+        return;
+      }
     }
     setLoading(false);
     router.push('/home');

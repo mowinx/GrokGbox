@@ -59,6 +59,7 @@ export default function HomeApp() {
     setUser(user);
     if (!user) return;
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+    if (p?.role === 'admin') { router.push('/admin'); return; }
     setProfile(p);
     if (p?.desired_gift) setDesired(p.desired_gift);
     const { data: code, error: codeErr } = await supabase.rpc('ensure_my_referral_code');
