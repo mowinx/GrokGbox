@@ -109,10 +109,6 @@ export default function HomeApp() {
     setJoinedIds((joined || []).map(j => j.campaign_id));
     const { data: cg } = await supabase.from('campaign_gifts').select('*').eq('active', true);
     setCampaignGifts(cg || []);
-    const { data: joined } = await supabase.from('campaign_participants').select('campaign_id').eq('user_id', user.id);
-    setJoinedIds((joined || []).map(j => j.campaign_id));
-    const { data: cg } = await supabase.from('campaign_gifts').select('*').eq('active', true);
-    setCampaignGifts(cg || []);
     const { data: mineCamps } = await supabase.from('campaigns').select('*').eq('host_id', user.id);
     setMyCampaigns(mineCamps || []);
     setProducts(pr || []);
