@@ -35,9 +35,11 @@ export default function HomeApp() {
   const [feed, setFeed] = useState([]);
   const feedBase = useRef([]);
   const [campaigns, setCampaigns] = useState([]);
+  const [campaignGifts, setCampaignGifts] = useState([]);
+  const [joinedIds, setJoinedIds] = useState([]);
   const [myCampaigns, setMyCampaigns] = useState([]);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
-  const [campaignForm, setCampaignForm] = useState({ title: '', shareTarget: 5, prizes: ['', '', ''] });
+  const [campaignForm, setCampaignForm] = useState({ title: '', shareTarget: 5, prizes: [] });
   const [participants, setParticipants] = useState([]);
   const [showHint, setShowHint] = useState(true);
   const [desired, setDesired] = useState(profile?.desired_gift || '');
@@ -47,7 +49,16 @@ export default function HomeApp() {
     { id: 'prize-3', name: 'Gift 3', image: '/prize-3.jpg' },
   ];
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const last = Number(localStorage.getItem('giftland_last') || 0);
+    if (last && Date.now() - last > 2 * 24 * 60 * 60 * 1000) {
+      supabase?.auth.signOut();
+      router.push('/login');
+      return;
+    }
+    localStorage.setItem('giftland_last', String(Date.now()));
+    load();
+  }, []);
   useEffect(() => {
     const t = setTimeout(() => setShowHint(false), 60000);
     return () => clearTimeout(t);
@@ -56,8 +67,8 @@ export default function HomeApp() {
   async function load() {
     if (!supabase) return;
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push('/login'); return; }
     setUser(user);
-    if (!user) return;
     const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     if (p?.role === 'admin') { router.push('/admin'); return; }
     setProfile(p);
@@ -94,6 +105,14 @@ export default function HomeApp() {
     setAttending((attending || []).map(a => a.events).filter(Boolean));
     const { data: camps } = await supabase.from('campaigns').select('*').eq('active', true);
     setCampaigns(camps || []);
+    const { data: joined } = await supabase.from('campaign_participants').select('campaign_id').eq('user_id', user.id);
+    setJoinedIds((joined || []).map(j => j.campaign_id));
+    const { data: cg } = await supabase.from('campaign_gifts').select('*').eq('active', true);
+    setCampaignGifts(cg || []);
+    const { data: joined } = await supabase.from('campaign_participants').select('campaign_id').eq('user_id', user.id);
+    setJoinedIds((joined || []).map(j => j.campaign_id));
+    const { data: cg } = await supabase.from('campaign_gifts').select('*').eq('active', true);
+    setCampaignGifts(cg || []);
     const { data: mineCamps } = await supabase.from('campaigns').select('*').eq('host_id', user.id);
     setMyCampaigns(mineCamps || []);
     setProducts(pr || []);
@@ -208,58 +227,69 @@ export default function HomeApp() {
         <button style={{ background: 'none', border: 'none', fontSize: 22 }} onClick={() => setScreen('notifications')}>🔔</button>
       </div>
 
-      <div className="phone-content">
+      <div className="phone-content" style={tab === 'home' && !screen ? { overflow: 'hidden', padding: 0 } : undefined}>
         {!screen && tab === 'home' && (
           <>
-            <h1 style={{ margin: 0 }}>Live Celebrations</h1>
-            {showHint && <p className="subtitle">Scroll for more</p>}
             <div onScroll={e => {
               const el = e.currentTarget;
               const itemH = el.clientHeight;
-              if (!itemH || feed.length < 2 || el.dataset.looping) return;
-              if (el.scrollTop + itemH >= el.scrollHeight - 8) {
+              if (!itemH || el.dataset.looping) return;
+              if (el.scrollTop + itemH >= el.scrollHeight - 8 && el.scrollHeight > itemH + 8) {
                 el.dataset.looping = '1';
-                setFeed(prev => [...prev, { ...prev[0], _k: prev[0].id + '-' + Date.now() }]);
+                setFeed(prev => [...prev, { ...prev[0], _k: (prev[0].id || 'x') + '-' + Date.now() }]);
                 setTimeout(() => { el.dataset.looping = ''; }, 300);
-              } else if (el.scrollTop >= itemH) {
-                el.dataset.looping = '1';
-                el.scrollTop = el.scrollTop - itemH;
-                setFeed(prev => prev.slice(1));
-                setTimeout(() => { el.dataset.looping = ''; }, 50);
               }
-            }} style={{ height: 'calc(100vh - 160px)', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
-            {feed.map(ev => (
-              <div key={ev._k || ev.id} onDoubleClick={() => handleDoubleTap(ev.id)} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', background: '#000', color: 'white' }}>
-                {ev.image_url ? (
-                  <img src={ev.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
+            }} style={{ height: '100%', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
+            {[...feed.map(ev => ({ kind: 'event', ...ev })), ...campaigns.map(c => ({ kind: 'campaign', ...c }))].map(item => (
+              <div key={item._k || item.id} onDoubleClick={() => item.kind === 'event' && handleDoubleTap(item.id)} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', background: '#000', color: 'white' }}>
+                {(item.image_url) ? (
+                  <img src={item.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
                 ) : null}
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 50%, rgba(0,0,0,.6))' }} />
-                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
-                  <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{ev.event_type === 'video' ? 'UPLOAD' : ev.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
-                  <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{ev.title}</div>
-                  <div style={{ fontSize: 13, opacity: 0.9 }}>{ev.event_date || ''} {ev.location ? '• ' + ev.location : ''}</div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(ev)}>View Event</button>
-                    <button className="btn btn-sm" onClick={() => toggleLike(ev.id)}>♥ {likes[ev.id] || 0}</button>
-                  </div>
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 40%, rgba(0,0,0,.65))' }} />
+                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
+                  {item.kind === 'event' ? (
+                    <>
+                      <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{item.event_type === 'video' ? 'UPLOAD' : item.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
+                      <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
+                      <div style={{ fontSize: 13, opacity: 0.9 }}>{item.event_date || ''} {item.location ? '• ' + item.location : ''}</div>
+                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                        <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(item)}>View Event</button>
+                        <button className="btn btn-sm" onClick={() => openEvent(item)}>Gift</button>
+                        <button className="btn btn-sm" onClick={() => toggleLike(item.id)}>♥ {likes[item.id] || 0}</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{joinedIds.includes(item.id) ? 'JOINED' : 'CAMPAIGN'}</span>
+                      <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
+                      <div style={{ fontWeight: 700 }}>{item.end_date ? Math.max(0, Math.ceil((new Date(item.end_date) - new Date()) / 86400000)) : 0} days to birthday</div>
+                      <button className="btn btn-sm" style={{ marginTop: 10, background: 'white', color: '#DC2626' }} onClick={() => { setSelectedCampaign(item); setScreen('campaign-rules'); }}>View campaign</button>
+                    </>
+                  )}
                 </div>
               </div>
             ))}
             </div>
-            {campaigns.map(c => {
-              const end = c.end_date ? new Date(c.end_date + 'T00:00:00') : null;
-              const days = end ? Math.max(0, Math.ceil((end - new Date()) / 86400000)) : 0;
-              return (
-                <div key={c.id} className="card" onClick={() => { setSelectedCampaign(c); setScreen('campaign-rules'); }} style={{ cursor: 'pointer', padding: 0, overflow: 'hidden' }}>
-                  {c.image_url && <img src={c.image_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover' }} />}
-                  <div style={{ padding: 12 }}>
-                    <strong>{c.title}</strong>
-                    <div style={{ color: '#DC2626', fontWeight: 700 }}>{days} days to birthday</div>
+            {!profile?.desired_gift && (
+              <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                <div style={{ background: 'white', borderRadius: 16, padding: 16, width: '100%', color: '#111' }}>
+                  <strong>Pick the gift you wish to win on your birthday</strong>
+                  <p style={{ fontSize: 13, color: '#6B7280' }}>You can only choose once.</p>
+                  <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
+                    {PRIZE_GIFTS.map(g => (
+                      <button key={g.id} onClick={async () => {
+                        setDesired(g.id);
+                        if (supabase && user) await supabase.from('profiles').update({ desired_gift: g.id }).eq('id', user.id);
+                        setProfile(p => ({ ...p, desired_gift: g.id }));
+                      }} style={{ border: '1px solid #F3F4F6', borderRadius: 12, padding: 8, background: 'white' }}>
+                        <img src={g.image} alt="" style={{ width: 90, height: 70, objectFit: 'cover', borderRadius: 8 }} />
+                        <div style={{ fontSize: 12 }}>{g.name}</div>
+                      </button>
+                    ))}
                   </div>
                 </div>
-              );
-            })}
-            {!feed.length && <div className="card">No events yet. Create one from the + button.</div>}
+              </div>
+            )}
           </>
         )}
 
@@ -426,7 +456,7 @@ export default function HomeApp() {
               <div style={{ padding: '10px 0', borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }} onClick={() => setScreen('privacy')}>Privacy</div>
               <div style={{ padding: '10px 0', cursor: 'pointer' }} onClick={() => setScreen('wallet')}>Wallet</div>
             </div>
-            <button className="btn btn-outline" onClick={async () => { await supabase?.auth.signOut(); router.push('/'); }}>Sign out</button>
+            <button className="btn btn-outline" onClick={async () => { await supabase?.auth.signOut(); router.push('/login'); }}>Sign out</button>
           </>
         )}
 
@@ -447,12 +477,13 @@ export default function HomeApp() {
             </div>
             <h2>Wishlist</h2>
             <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>Tap to add or remove</p>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Cash gift</div>
+            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>₦25,000 · ₦50,000 · ₦100,000</div>
             {CASH_GIFTS.map(p => {
               const on = cart.find(x => x.id === p.id);
               return (
                 <button type="button" key={p.id} className="card" onClick={() => toggleCart(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
-                  <strong>{p.name}</strong>
-                  <div style={{ color: '#DC2626', fontWeight: 700 }}>₦{p.price.toLocaleString()}</div>
+                  <strong>₦{p.price.toLocaleString()}</strong>
                   {on && <span className="tag tag-red">Selected</span>}
                 </button>
               );
@@ -460,10 +491,9 @@ export default function HomeApp() {
             {products.map(p => {
               const on = cart.find(x => x.id === p.id);
               return (
-                <button type="button" key={p.id} className="card" onClick={() => toggleCart(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
-                  <strong>{p.name}</strong>
-                  <div style={{ color: '#DC2626', fontWeight: 700 }}>₦{Number(p.price).toLocaleString()}</div>
-                  {on && <span className="tag tag-red">Selected</span>}
+                <button type="button" key={p.id} className="card" onClick={() => toggleCart(p)} style={{ display: 'flex', gap: 10, width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
+                  {p.image_url && <img src={p.image_url} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />}
+                  <div><strong>{p.name}</strong><div style={{ color: '#DC2626', fontWeight: 700 }}>₦{Number(p.price).toLocaleString()}</div></div>
                 </button>
               );
             })}
@@ -681,24 +711,19 @@ export default function HomeApp() {
             <h1>Choose Wishlist</h1>
             <p className="subtitle">Tap a gift to add it. Tap again to remove it.</p>
             <button type="button" className="btn btn-outline" style={{ marginBottom: 12 }} onClick={() => setWishlist([...CASH_GIFTS, ...products])}>Select All</button>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Cash gifts</div>
-            {CASH_GIFTS.map(p => {
-              const on = wishlist.some(x => x.id === p.id);
-              return (
-                <button type="button" key={p.id} className="card" onClick={() => toggleWish(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
-                  <strong>Cash · ₦{p.price.toLocaleString()}</strong>
-                  {on && <div><span className="tag tag-red">Added</span></div>}
-                </button>
-              );
-            })}
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Cash gift</div>
+            <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>₦25,000 · ₦50,000 · ₦100,000</div>
+            <button type="button" className="card" onClick={() => toggleWish({ id: 'cash', name: 'Cash Gift', is_cash: true, price: 0 })} style={{ display: 'block', width: '100%', textAlign: 'left', border: wishlist.some(x => x.is_cash) ? '2px solid #DC2626' : '1px solid #F3F4F6', background: wishlist.some(x => x.is_cash) ? '#FEE2E2' : 'white' }}>
+              <strong>Cash Gift</strong>
+              {wishlist.some(x => x.is_cash) && <span className="tag tag-red">Added</span>}
+            </button>
             {products.length > 0 && <div style={{ fontWeight: 700, margin: '12px 0 8px' }}>Store gifts</div>}
             {products.map(p => {
               const on = wishlist.some(x => x.id === p.id);
               return (
-                <button type="button" key={p.id} className="card" onClick={() => toggleWish(p)} style={{ display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
-                  <strong>{p.name}</strong>
-                  <div style={{ color: '#DC2626' }}>₦{Number(p.price).toLocaleString()}</div>
-                  {on && <span className="tag tag-red">Added</span>}
+                <button type="button" key={p.id} className="card" onClick={() => toggleWish(p)} style={{ display: 'flex', gap: 10, width: '100%', textAlign: 'left', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6', background: on ? '#FEE2E2' : 'white' }}>
+                  {p.image_url && <img src={p.image_url} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />}
+                  <div><strong>{p.name}</strong><div style={{ color: '#DC2626' }}>₦{Number(p.price).toLocaleString()}</div></div>
                 </button>
               );
             })}
@@ -809,10 +834,18 @@ export default function HomeApp() {
             {uploadPreview && <img src={uploadPreview} alt="" style={{ width: '100%', borderRadius: 12, margin: '8px 0' }} />}
             <label className="label">Share the link to at least</label>
             <input className="input" type="number" value={campaignForm.shareTarget} onChange={e => setCampaignForm(f => ({ ...f, shareTarget: e.target.value }))} />
-            <label className="label">3 prizes to be won</label>
-            {[0,1,2].map(i => (
-              <input key={i} className="input" placeholder={'Prize ' + (i + 1)} value={campaignForm.prizes[i]} onChange={e => setCampaignForm(f => { const prizes = [...f.prizes]; prizes[i] = e.target.value; return { ...f, prizes }; })} />
-            ))}
+            <label className="label">Pick 3 campaign prizes</label>
+            {campaignGifts.map(g => {
+              const on = campaignForm.prizes.includes(g.id);
+              return (
+                <button type="button" key={g.id} className="card" onClick={() => setCampaignForm(f => ({ ...f, prizes: on ? f.prizes.filter(id => id !== g.id) : f.prizes.length >= 3 ? f.prizes : [...f.prizes, g.id] }))} style={{ display: 'flex', gap: 10, width: '100%', textAlign: 'left', border: on ? '2px solid #DC2626' : '1px solid #F3F4F6' }}>
+                  {g.image_url && <img src={g.image_url} alt="" style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 8 }} />}
+                  <div><strong>{g.name}</strong><div>₦{Number(g.price || 0).toLocaleString()}</div></div>
+                  <input type="checkbox" readOnly checked={on} />
+                </button>
+              );
+            })}
+            {!campaignGifts.length && <p>Admin has not added campaign gifts yet.</p>}
             <div className="card">
               <strong>Rules</strong>
               <p>1. Share the link to at least {campaignForm.shareTarget} friends.</p>
@@ -820,7 +853,7 @@ export default function HomeApp() {
               <p>3. Leave a birthday wish for the host.</p>
             </div>
             <button className="btn" onClick={async () => {
-              if (!user || !campaignForm.title || campaignForm.prizes.some(p => !p)) { alert('Add a name and 3 prizes'); return; }
+              if (!user || !campaignForm.title || campaignForm.prizes.length !== 3) { alert('Add a name and pick exactly 3 prizes'); return; }
               const month = String(profile?.birthday_month || 1).padStart(2, '0');
               const day = String(profile?.birthday_day || 1).padStart(2, '0');
               const year = new Date().getMonth() + 1 > (profile?.birthday_month || 1) ? new Date().getFullYear() + 1 : new Date().getFullYear();
@@ -831,7 +864,10 @@ export default function HomeApp() {
                 share_target: Number(campaignForm.shareTarget) || 5, share_code: code,
               }).select().single();
               if (error) { alert(error.message); return; }
-              await supabase.from('campaign_prizes').insert(campaignForm.prizes.map((name, i) => ({ campaign_id: data.id, name, position: i + 1 })));
+              await supabase.from('campaign_prizes').insert(campaignForm.prizes.map((id, i) => {
+                const g = campaignGifts.find(x => x.id === id);
+                return { campaign_id: data.id, name: g?.name || 'Prize', position: i + 1 };
+              }));
               setUploadPreview(null);
               load();
               setScreen(null);
