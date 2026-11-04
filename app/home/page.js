@@ -89,7 +89,7 @@ export default function HomeApp() {
     const { data: ev } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     const list = ev || [];
     const today = new Date().toISOString().slice(0, 10);
-    const active = list.filter(e => !e.event_date || e.event_date >= today);
+    const active = list.filter(e => (!e.event_date || e.event_date >= today) && e.image_url);
     setEvents(active.filter(e => e.is_public));
     const seed = user.id.split('').reduce((n, c) => n + c.charCodeAt(0), 0);
     const shuffled = [...active].sort((a, b) => {
@@ -104,13 +104,14 @@ export default function HomeApp() {
     const { data: attending } = await supabase.from('event_attendees').select('event_id, events(*)').eq('user_id', user.id).eq('status', 'attending');
     setAttending((attending || []).map(a => a.events).filter(Boolean));
     const { data: camps } = await supabase.from('campaigns').select('*').eq('active', true);
-    setCampaigns(camps || []);
+    setCampaigns((camps || []).filter(c => c.image_url));
     const { data: joined } = await supabase.from('campaign_participants').select('campaign_id').eq('user_id', user.id);
     setJoinedIds((joined || []).map(j => j.campaign_id));
-    const { data: cg } = await supabase.from('campaign_gifts').select('*').eq('active', true);
+    const { data: cg } = await supabase.from('campaign_gifts').select('*');
     setCampaignGifts(cg || []);
     const { data: mineCamps } = await supabase.from('campaigns').select('*').eq('host_id', user.id);
     setMyCampaigns(mineCamps || []);
+    const { data: pr } = await supabase.from('products').select('*');
     setProducts(pr || []);
     const { data: likeRows } = await supabase.from('event_likes').select('event_id, user_id');
     const counts = {};
@@ -223,27 +224,27 @@ export default function HomeApp() {
         <button style={{ background: 'none', border: 'none', fontSize: 22 }} onClick={() => setScreen('notifications')}>🔔</button>
       </div>
 
-      <div className="phone-content" style={tab === 'home' && !screen ? { overflow: 'hidden', padding: 0 } : undefined}>
+      <div className="phone-content" style={tab === 'home' && !screen ? { overflow: 'hidden', padding: 0, paddingBottom: 0 } : undefined}>
         {!screen && tab === 'home' && (
           <>
             <div onScroll={e => {
               const el = e.currentTarget;
-              const itemH = el.clientHeight;
-              if (!itemH || el.dataset.looping) return;
-              if (el.scrollTop + itemH >= el.scrollHeight - 8 && el.scrollHeight > itemH + 8) {
-                el.dataset.looping = '1';
-                setFeed(prev => [...prev, { ...prev[0], _k: (prev[0].id || 'x') + '-' + Date.now() }]);
-                setTimeout(() => { el.dataset.looping = ''; }, 300);
-              }
-            }} style={{ height: '100%', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
-            {[...feed.map(ev => ({ kind: 'event', ...ev })), ...campaigns.map(c => ({ kind: 'campaign', ...c }))].map(item => (
-              <div key={item._k || item.id} onDoubleClick={() => item.kind === 'event' && handleDoubleTap(item.id)} style={{ height: '100%', scrollSnapAlign: 'start', position: 'relative', background: '#000', color: 'white' }}>
-                {(item.image_url) ? (
-                  <img src={item.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />
-                ) : null}
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 40%, rgba(0,0,0,.65))' }} />
-                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 24 }}>
-                  {item.kind === 'event' ? (
+              const half = el.scrollHeight / 2;
+              if (half > el.clientHeight && el.scrollTop >= half) el.scrollTop = el.scrollTop - half;
+            }} style={{ height: 'calc(100vh - 128px)', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
+            {[...feed, ...campaigns.map(c => ({ ...c, kind: 'campaign' })), ...feed, ...campaigns.map(c => ({ ...c, kind: 'campaign' }))].filter(item => item.image_url).map((item, i) => (
+              <div key={(item.id || 'x') + '-' + i} onDoubleClick={() => !item.kind && handleDoubleTap(item.id)} style={{ height: 'calc(100vh - 128px)', scrollSnapAlign: 'start', position: 'relative', background: '#111', color: 'white' }}>
+                <img src={item.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#111' }} />
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 45%, rgba(0,0,0,.7))' }} />
+                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 20, zIndex: 2 }}>
+                  {item.kind === 'campaign' ? (
+                    <>
+                      <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{joinedIds.includes(item.id) ? 'JOINED' : 'CAMPAIGN'}</span>
+                      <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
+                      <div style={{ fontWeight: 700 }}>{item.end_date ? Math.max(0, Math.ceil((new Date(item.end_date) - new Date()) / 86400000)) : 0} days to birthday</div>
+                      <button className="btn btn-sm" style={{ marginTop: 10, background: 'white', color: '#DC2626' }} onClick={() => { setSelectedCampaign(item); setScreen('campaign-rules'); }}>View campaign</button>
+                    </>
+                  ) : (
                     <>
                       <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{item.event_type === 'video' ? 'UPLOAD' : item.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
                       <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
@@ -254,18 +255,12 @@ export default function HomeApp() {
                         <button className="btn btn-sm" onClick={() => toggleLike(item.id)}>♥ {likes[item.id] || 0}</button>
                       </div>
                     </>
-                  ) : (
-                    <>
-                      <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{joinedIds.includes(item.id) ? 'JOINED' : 'CAMPAIGN'}</span>
-                      <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
-                      <div style={{ fontWeight: 700 }}>{item.end_date ? Math.max(0, Math.ceil((new Date(item.end_date) - new Date()) / 86400000)) : 0} days to birthday</div>
-                      <button className="btn btn-sm" style={{ marginTop: 10, background: 'white', color: '#DC2626' }} onClick={() => { setSelectedCampaign(item); setScreen('campaign-rules'); }}>View campaign</button>
-                    </>
                   )}
                 </div>
               </div>
             ))}
             </div>
+            {!feed.length && !campaigns.length && <div className="card" style={{ margin: 16 }}>No events with photos yet.</div>}
             {!profile?.desired_gift && (
               <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
                 <div style={{ background: 'white', borderRadius: 16, padding: 16, width: '100%', color: '#111' }}>
@@ -364,8 +359,12 @@ export default function HomeApp() {
               <button className={`btn btn-sm ${eventForm.locType === 'physical' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'physical' }))}>📍 Physical</button>
               <button className={`btn btn-sm ${eventForm.locType === 'virtual' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'virtual' }))}>💻 Virtual</button>
             </div>
-            <label className="label">Location</label>
-            <input className="input" value={eventForm.location} onChange={e => setEventForm(f => ({ ...f, location: e.target.value }))} placeholder="Venue or link" />
+            {eventForm.locType === 'physical' && (
+              <>
+                <label className="label">Location</label>
+                <input className="input" value={eventForm.location} onChange={e => setEventForm(f => ({ ...f, location: e.target.value }))} placeholder="Venue" />
+              </>
+            )}
             <label className="label">Description</label>
             <input className="input" value={eventForm.desc} onChange={e => setEventForm(f => ({ ...f, desc: e.target.value }))} placeholder="Join us for cake, games, and a day full of fun!" />
             <label className="label">Visibility</label>
@@ -375,15 +374,10 @@ export default function HomeApp() {
                 <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: eventForm.isPublic ? 22 : 2 }} />
               </div>
             </div>
-            <button className="btn" onClick={async () => {
-              if (!supabase || !user || !eventForm.title || !eventForm.date) { alert('Add a title and a date'); return; }
-              const { data } = await supabase.from('events').insert({
-                host_id: user.id, title: eventForm.title, event_type: eventForm.type,
-                event_date: eventForm.date || null, location: eventForm.location,
-                is_public: eventForm.isPublic, share_code: Math.random().toString(36).slice(2, 8),
-                image_url: uploadPreview || null,
-              }).select().single();
-              if (data) { setSelectedEvent(data); setScreen('build-wishlist'); load(); }
+            <button className="btn" onClick={() => {
+              if (!eventForm.title || !eventForm.date) { alert('Add a title and a date'); return; }
+              if (!uploadPreview) { alert('Add a photo. Every event needs a picture.'); return; }
+              setScreen('build-wishlist');
             }}>Next: Choose Wishlist Gifts</button>
           </>
         )}
@@ -726,16 +720,26 @@ export default function HomeApp() {
             {!products.length && <p style={{ fontSize: 13, color: '#6B7280' }}>Store gifts will appear here once a vendor adds them. Cash gifts are ready now.</p>}
             <button type="button" className="btn" onClick={async () => {
               if (!wishlist.length) { alert('Tap at least one gift to add it.'); return; }
-              if (supabase && selectedEvent) {
-                const rows = wishlist.map(item => ({
-                  event_id: selectedEvent.id,
-                  product_id: item.is_cash ? null : item.id,
-                  is_cash: !!item.is_cash,
-                  amount: item.is_cash ? item.price : item.price,
-                }));
-                const { error } = await supabase.from('wishlist_items').insert(rows);
-                if (error) { alert('Could not save wishlist: ' + error.message); return; }
-              }
+              if (!supabase || !user) return;
+              const { data, error } = await supabase.from('events').insert({
+                host_id: user.id, title: eventForm.title, event_type: eventForm.type,
+                event_date: eventForm.date || null,
+                location: eventForm.locType === 'virtual' ? 'Virtual' : eventForm.location,
+                is_public: eventForm.isPublic, share_code: Math.random().toString(36).slice(2, 8),
+                image_url: uploadPreview,
+              }).select().single();
+              if (error || !data) { alert(error?.message || 'Could not create event'); return; }
+              const rows = wishlist.map(item => ({
+                event_id: data.id,
+                product_id: item.is_cash ? null : item.id,
+                is_cash: !!item.is_cash,
+                amount: item.price || 0,
+              }));
+              const { error: werr } = await supabase.from('wishlist_items').insert(rows);
+              if (werr) { alert('Event created but wishlist failed: ' + werr.message); }
+              setSelectedEvent(data);
+              setUploadPreview(null);
+              load();
               setScreen('event-created');
             }}>Create Event</button>
           </>
@@ -850,6 +854,7 @@ export default function HomeApp() {
             </div>
             <button className="btn" onClick={async () => {
               if (!user || !campaignForm.title || campaignForm.prizes.length !== 3) { alert('Add a name and pick exactly 3 prizes'); return; }
+              if (!uploadPreview) { alert('Add a campaign photo.'); return; }
               const month = String(profile?.birthday_month || 1).padStart(2, '0');
               const day = String(profile?.birthday_day || 1).padStart(2, '0');
               const year = new Date().getMonth() + 1 > (profile?.birthday_month || 1) ? new Date().getFullYear() + 1 : new Date().getFullYear();
