@@ -37,6 +37,9 @@ function LandingInner() {
     }, 400);
     return () => clearTimeout(t);
   }, [form.email, mode]);
+
+  useEffect(() => {
+    const name = form.username.trim().toLowerCase();
     if (!name || mode !== 'signup') { setNameStatus(''); return; }
     if (!/^[a-z0-9_]{3,20}$/.test(name)) { setNameStatus('Use 3–20 letters, numbers or _'); return; }
     setNameStatus('Checking…');

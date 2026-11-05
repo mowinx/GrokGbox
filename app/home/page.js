@@ -608,6 +608,7 @@ export default function HomeApp() {
             }}>View gifts received</button>
           </>
         )}
+        {screen === 'gifts-received' && selectedEvent && (
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← myGifts</button>
             <h1>Gifts for {selectedEvent.title}</h1>
