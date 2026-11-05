@@ -43,6 +43,8 @@ export default function HomeApp() {
   const [participants, setParticipants] = useState([]);
   const [showHint, setShowHint] = useState(true);
   const [notes, setNotes] = useState([]);
+  const [giftedEvents, setGiftedEvents] = useState({});
+  const [hostName, setHostName] = useState('');
   const [desired, setDesired] = useState(profile?.desired_gift || '');
   const PRIZE_GIFTS = [
     { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
@@ -139,7 +141,10 @@ export default function HomeApp() {
     });
     setCashByEvent(Object.values(grouped));
     const { data: noteRows } = await supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-    setNotes(noteRows || []);
+    const { data: mineGifts } = await supabase.from('gifts').select('event_id').eq('sender_id', user.id);
+    const gifted = {};
+    (mineGifts || []).forEach(g => { gifted[g.event_id] = true; });
+    setGiftedEvents(gifted);
   }
 
   function qualify(type) {
@@ -191,7 +196,15 @@ export default function HomeApp() {
     reader.readAsDataURL(file);
   }
 
-  function openEvent(ev) { setSelectedEvent(ev); setScreen('event-detail'); setCart([]); }
+  function openEvent(ev) {
+    setSelectedEvent(ev);
+    setHostName(ev.profiles?.username || '');
+    if (supabase && ev.host_id && !ev.profiles?.username) {
+      supabase.from('profiles').select('username').eq('id', ev.host_id).single().then(({ data }) => setHostName(data?.username || ''));
+    }
+    setScreen('event-detail');
+    setCart([]);
+  }
 
   async function openCampaign(c) {
     setSelectedCampaign(c);
@@ -223,7 +236,10 @@ export default function HomeApp() {
     <div className="phone" style={{ background: '#FFFBFB' }}>
       <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white' }}>
         <div style={{ fontWeight: 800, fontSize: 18, color: '#DC2626' }}>🎁 Giftland</div>
-        <button style={{ background: 'none', border: 'none', fontSize: 22 }} onClick={() => setScreen('notifications')}>🔔</button>
+        <button style={{ background: 'none', border: 'none', fontSize: 22, position: 'relative' }} onClick={() => setScreen('notifications')}>
+          🔔
+          {notes.length > 0 && <span style={{ position: 'absolute', top: -4, right: -6, background: '#DC2626', color: 'white', borderRadius: 10, fontSize: 10, padding: '1px 5px' }}>{notes.length}</span>}
+        </button>
       </div>
 
       <div className="phone-content" style={tab === 'home' && !screen ? { overflow: 'hidden', padding: 0, paddingBottom: 0 } : undefined}>
@@ -253,7 +269,7 @@ export default function HomeApp() {
                       <div style={{ fontSize: 13, opacity: 0.9 }}>{item.event_date || ''} {item.location ? '• ' + item.location : ''}</div>
                       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
                         <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(item)}>View Event</button>
-                        <button className="btn btn-sm" onClick={() => openEvent(item)}>Gift</button>
+                        <button className="btn btn-sm" style={{ background: giftedEvents[item.id] ? '#059669' : 'white', color: giftedEvents[item.id] ? 'white' : '#DC2626' }} onClick={() => openEvent(item)}>Gift</button>
                         <button className="btn btn-sm" onClick={() => toggleLike(item.id)}>♥ {likes[item.id] || 0}</button>
                       </div>
                     </>
@@ -461,7 +477,7 @@ export default function HomeApp() {
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>{selectedEvent.title}</h1>
-            <p className="subtitle">{selectedEvent.event_date || ''} {selectedEvent.location ? '• ' + selectedEvent.location : ''}</p>
+            <p className="subtitle">Hosted by @{hostName || 'host'} · {selectedEvent.event_date || ''}</p>
             <div className="card" style={{ background: '#F9FAFB' }}>
               <div style={{ fontSize: 12, color: '#6B7280' }}>EVENT LINK</div>
               <div style={{ fontWeight: 700, wordBreak: 'break-all' }}>{typeof window !== 'undefined' ? window.location.origin : ''}/e/{selectedEvent.share_code}</div>
@@ -507,21 +523,23 @@ export default function HomeApp() {
             <button className="btn" onClick={async () => {
               if (supabase && user && selectedEvent) {
                 for (const item of cart) {
-                  await supabase.from('gifts').insert({
+                  const { error } = await supabase.from('gifts').insert({
                     event_id: selectedEvent.id,
                     sender_id: user.id,
                     product_id: item.is_cash ? null : item.id,
                     is_anonymous: anon,
                     is_cash: !!item.is_cash,
                     amount: item.price || 0,
-                    status: 'not_redeemed',
+                    status: 'pending',
                   });
+                  if (error) { alert('Gift failed: ' + error.message); return; }
                 }
                 await supabase.from('notifications').insert({
                   user_id: selectedEvent.host_id,
                   event_id: selectedEvent.id,
-                  message: `You received a gift for ${selectedEvent.title}`,
+                  message: `@${profile?.username || 'someone'} gifted ${selectedEvent.title}`,
                 });
+                setGiftedEvents(prev => ({ ...prev, [selectedEvent.id]: true }));
               }
               setScreen('gift-success');
             }}>Pay & Gift</button>
@@ -531,8 +549,8 @@ export default function HomeApp() {
         {screen === 'gift-success' && (
           <>
             <div style={{ textAlign: 'center', fontSize: 48 }}>🎉</div>
-            <h1 style={{ textAlign: 'center' }}>Gift Sent!</h1>
-            <p className="subtitle" style={{ textAlign: 'center' }}>Items gifted to this event:</p>
+            <h1 style={{ textAlign: 'center' }}>Gift Sent</h1>
+            <p className="subtitle" style={{ textAlign: 'center' }}>Items gifted to @{hostName || 'host'} on {selectedEvent?.title} celebration.</p>
             {cart.map(c => <div key={c.id} className="card"><strong>{c.name}</strong></div>)}
             <button className="btn" onClick={() => { setScreen(null); setCart([]); }}>Done</button>
           </>
@@ -624,12 +642,12 @@ export default function HomeApp() {
               <div key={g.id} className="card">
                 <strong>{g.is_cash ? `Cash ₦${Number(g.amount || 0).toLocaleString()}` : (g.products?.name || 'Gift item')}</strong>
                 <div style={{ fontSize: 13, color: '#6B7280' }}>{g.is_anonymous ? 'Anonymous' : (g.profiles?.full_name || 'Named')}</div>
-                <span className="tag tag-red">{g.status === 'ready' ? 'Redeem Now' : g.status === 'redeemed' ? 'Redeemed' : 'Not Redeemed'}</span>
+                <span className="tag tag-red">{g.status === 'ready' ? 'Redeem Now' : g.status === 'delivered' ? 'Redeemed' : 'Not Redeemed'}</span>
               </div>
             )) : <div className="card">No gifts yet.</div>}
             <button className="btn" disabled={!receivedGifts.some(g => g.status === 'ready')} onClick={async () => {
               const ready = receivedGifts.filter(g => g.status === 'ready');
-              for (const g of ready) await supabase.from('gifts').update({ status: 'redeemed' }).eq('id', g.id);
+              for (const g of ready) await supabase.from('gifts').update({ status: 'delivered' }).eq('id', g.id);
               const { data } = await supabase.from('gifts').select('*, profiles(full_name), products(name)').eq('event_id', selectedEvent.id);
               setReceivedGifts(data || []);
             }}>Redeem gift items</button>
