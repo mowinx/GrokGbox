@@ -42,6 +42,7 @@ export default function HomeApp() {
   const [campaignForm, setCampaignForm] = useState({ title: '', shareTarget: 5, prizes: [] });
   const [participants, setParticipants] = useState([]);
   const [showHint, setShowHint] = useState(true);
+  const [notes, setNotes] = useState([]);
   const [desired, setDesired] = useState(profile?.desired_gift || '');
   const PRIZE_GIFTS = [
     { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
@@ -137,7 +138,8 @@ export default function HomeApp() {
       grouped[g.event_id] = { title: t, amount: (grouped[g.event_id]?.amount || 0) + Number(g.amount || 0) };
     });
     setCashByEvent(Object.values(grouped));
-    if (p) setBank({ bank_name: p.bank_name || '', account_name: p.account_name || '', account_number: p.account_number || '' });
+    const { data: noteRows } = await supabase.from('notifications').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+    setNotes(noteRows || []);
   }
 
   function qualify(type) {
@@ -512,8 +514,14 @@ export default function HomeApp() {
                     is_anonymous: anon,
                     is_cash: !!item.is_cash,
                     amount: item.price || 0,
+                    status: 'not_redeemed',
                   });
                 }
+                await supabase.from('notifications').insert({
+                  user_id: selectedEvent.host_id,
+                  event_id: selectedEvent.id,
+                  message: `You received a gift for ${selectedEvent.title}`,
+                });
               }
               setScreen('gift-success');
             }}>Pay & Gift</button>
@@ -614,10 +622,17 @@ export default function HomeApp() {
             <h1>Gifts for {selectedEvent.title}</h1>
             {receivedGifts.length ? receivedGifts.map(g => (
               <div key={g.id} className="card">
-                <strong>{g.is_cash ? `Cash ₦${Number(g.amount || 0).toLocaleString()}` : 'Gift item'}</strong>
+                <strong>{g.is_cash ? `Cash ₦${Number(g.amount || 0).toLocaleString()}` : (g.products?.name || 'Gift item')}</strong>
                 <div style={{ fontSize: 13, color: '#6B7280' }}>{g.is_anonymous ? 'Anonymous' : (g.profiles?.full_name || 'Named')}</div>
+                <span className="tag tag-red">{g.status === 'ready' ? 'Redeem Now' : g.status === 'redeemed' ? 'Redeemed' : 'Not Redeemed'}</span>
               </div>
             )) : <div className="card">No gifts yet.</div>}
+            <button className="btn" disabled={!receivedGifts.some(g => g.status === 'ready')} onClick={async () => {
+              const ready = receivedGifts.filter(g => g.status === 'ready');
+              for (const g of ready) await supabase.from('gifts').update({ status: 'redeemed' }).eq('id', g.id);
+              const { data } = await supabase.from('gifts').select('*, profiles(full_name), products(name)').eq('event_id', selectedEvent.id);
+              setReceivedGifts(data || []);
+            }}>Redeem gift items</button>
           </>
         )}
 
@@ -990,7 +1005,21 @@ export default function HomeApp() {
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← Back</button>
             <h1>Notifications</h1>
-            <div className="card">No new notifications.</div>
+            {notes.map(n => (
+              <div key={n.id} className="card" onClick={async () => {
+                const ev = myEvents.find(e => e.id === n.event_id);
+                if (ev) {
+                  setSelectedEvent(ev);
+                  const { data } = await supabase.from('gifts').select('*, profiles(full_name), products(name)').eq('event_id', ev.id);
+                  setReceivedGifts(data || []);
+                  setTab('gifts');
+                  setScreen('gifts-received');
+                }
+              }} style={{ cursor: 'pointer' }}>
+                {n.message}
+              </div>
+            ))}
+            {!notes.length && <div className="card">No new notifications.</div>}
           </>
         )}
       </div>

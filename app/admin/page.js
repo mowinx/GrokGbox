@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '../../lib/supabase';
 
-const views = ['dashboard', 'gifts', 'campaign gifts', 'events', 'campaigns', 'hosts', 'orders', 'transactions', 'reports', 'system'];
+const views = ['dashboard', 'gifts', 'campaign gifts', 'events', 'campaigns', 'hosts', 'analysis', 'transactions', 'reports', 'system'];
 
 export default function Admin() {
   const router = useRouter();
@@ -19,6 +19,7 @@ export default function Admin() {
   const [image, setImage] = useState('');
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [eventGifts, setEventGifts] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -163,9 +164,14 @@ export default function Admin() {
             <h1>Events</h1>
             <h2>Active</h2>
             {events.filter(e => !e.event_date || e.event_date >= today).map(e => (
-              <div key={e.id} className="card" onClick={() => { setSelected(e); setView('event-summary'); }}>
+              <div key={e.id} className="card" onClick={async () => {
+                setSelected(e);
+                const { data } = await supabase.from('gifts').select('*, profiles(full_name, username), products(name)').eq('event_id', e.id);
+                setEventGifts(data || []);
+                setView('event-summary');
+              }}>
                 <strong>{e.title}</strong>
-                <div>{e.event_date || 'No date'} · {e.profiles?.full_name}</div>
+                <div>{e.event_date || 'No date'} · @{e.profiles?.username || 'host'}</div>
               </div>
             ))}
             <h2>Past</h2>
@@ -182,11 +188,32 @@ export default function Admin() {
             <button onClick={() => setView('events')}>← Events</button>
             <h1>{selected.title}</h1>
             <div className="card">
-              <div>Host: {selected.profiles?.full_name} @{selected.profiles?.username}</div>
+              <div>Host: {selected.profiles?.full_name} @{selected.profiles?.username || 'host'}</div>
               <div>Date: {selected.event_date || '—'}</div>
               <div>Type: {selected.event_type}</div>
               <div>Public: {selected.is_public ? 'Yes' : 'No'}</div>
-              <div>Link: /e/{selected.share_code}</div>
+            </div>
+            <h2>Gifts given</h2>
+            {eventGifts.map(g => (
+              <div key={g.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <strong>{g.is_cash ? `Cash ₦${Number(g.amount||0).toLocaleString()}` : (g.products?.name || 'Gift')}</strong>
+                  <div>From {g.is_anonymous ? 'Anonymous' : '@' + (g.profiles?.username || g.profiles?.full_name || 'user')}</div>
+                  <div>{g.status || 'not_redeemed'}</div>
+                </div>
+                <button className="btn btn-sm" onClick={async () => {
+                  const next = g.status === 'ready' ? 'not_redeemed' : 'ready';
+                  await supabase.from('gifts').update({ status: next }).eq('id', g.id);
+                  const { data } = await supabase.from('gifts').select('*, profiles(full_name, username), products(name)').eq('event_id', selected.id);
+                  setEventGifts(data || []);
+                }}>{g.status === 'ready' ? 'Ready for pickup' : 'Mark ready'}</button>
+              </div>
+            ))}
+            {!eventGifts.length && <div className="card">No gifts yet.</div>}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-sm" onClick={async () => { await supabase.from('events').update({ active: false }).eq('id', selected.id); alert('Event made inactive'); }}>Inactive</button>
+              <button className="btn btn-sm btn-outline" onClick={async () => { await supabase.from('events').update({ hold: true }).eq('id', selected.id); alert('Event on hold'); }}>Hold</button>
+              <button className="btn btn-sm btn-outline" onClick={async () => { await supabase.from('events').update({ suspended: true, active: false }).eq('id', selected.id); alert('Event suspended'); }}>Suspend</button>
             </div>
           </>
         )}
@@ -230,7 +257,21 @@ export default function Admin() {
         )}
         {view === 'orders' && <h1>Orders</h1>}
         {view === 'transactions' && <h1>Transactions</h1>}
-        {view === 'reports' && <h1>Reports</h1>}
+        {view === 'analysis' && (
+          <>
+            <h1>Analysis</h1>
+            <div className="stats">
+              <div className="stat"><div>Hosts</div><div className="value">{hosts.length}</div></div>
+              <div className="stat"><div>Events</div><div className="value">{events.length}</div></div>
+              <div className="stat"><div>Birthdays</div><div className="value">{events.filter(e => e.event_type === 'birthday').length}</div></div>
+              <div className="stat"><div>Uploads</div><div className="value">{events.filter(e => e.event_type === 'video').length}</div></div>
+              <div className="stat"><div>Live</div><div className="value">{events.filter(e => e.event_type === 'live').length}</div></div>
+              <div className="stat"><div>Campaigns</div><div className="value">{campaigns.length}</div></div>
+              <div className="stat"><div>Gift items</div><div className="value">{products.length}</div></div>
+              <div className="stat"><div>Campaign gifts</div><div className="value">{campaignGifts.length}</div></div>
+            </div>
+          </>
+        )}
         {view === 'system' && <h1>System</h1>}
       </div>
     </div>
