@@ -11,6 +11,7 @@ function LandingInner() {
   const [refCode, setRefCode] = useState('');
   const [mode, setMode] = useState('signup');
   const [nameStatus, setNameStatus] = useState('');
+  const [emailStatus, setEmailStatus] = useState('');
   const [desired, setDesired] = useState('');
   const PRIZES = [
     { id: 'prize-1', name: 'Gift 1', image: '/prize-1.jpg' },
@@ -24,7 +25,18 @@ function LandingInner() {
   }, [search]);
 
   useEffect(() => {
-    const name = form.username.trim().toLowerCase();
+    const addr = form.email.trim().toLowerCase();
+    if (!addr || mode !== 'signup') { setEmailStatus(''); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) { setEmailStatus('Use name@host.com'); return; }
+    setEmailStatus('Checking…');
+    const t = setTimeout(async () => {
+      if (!supabase) return;
+      const { data, error } = await supabase.rpc('email_available', { addr });
+      if (error) { setEmailStatus(''); return; }
+      setEmailStatus(data ? 'Available' : 'email already in use');
+    }, 400);
+    return () => clearTimeout(t);
+  }, [form.email, mode]);
     if (!name || mode !== 'signup') { setNameStatus(''); return; }
     if (!/^[a-z0-9_]{3,20}$/.test(name)) { setNameStatus('Use 3–20 letters, numbers or _'); return; }
     setNameStatus('Checking…');
@@ -64,7 +76,7 @@ function LandingInner() {
         setLoading(false);
         return;
       }
-      if (!desired) { alert('Pick one gift to win on your birthday'); setLoading(false); return; }
+      if (emailStatus === 'email already in use') { alert('That email is already in use'); setLoading(false); return; }
       const { data, error } = await supabase.auth.signUp({
         email: form.email,
         password: form.password,
@@ -127,7 +139,7 @@ function LandingInner() {
         .landing .disclaimer { font-size: 12px; color: #9CA3AF; line-height: 1.5; margin-top: 16px; padding: 12px; background: #F3F4F6; border-radius: 10px; }
         .landing .signup { background: #FEE2E2; padding: 32px 20px 40px; }
         .landing .signup h2 { color: #DC2626; font-size: 22px; font-weight: 800; margin-bottom: 8px; }
-        .landing .input { width: 100%; padding: 14px 16px; border: 1.5px solid #E5E7EB; border-radius: 12px; font-size: 16px; margin-bottom: 10px; background: white; }
+        .landing .input { width: 100%; padding: 14px 16px; border: 1.5px solid #E5E7EB; border-radius: 12px; font-size: 16px; margin-bottom: 10px; background: white; color: #111827; font-family: system-ui, Segoe UI, Roboto, sans-serif; }
         .landing .input:focus { outline: none; border-color: #DC2626; }
         .landing .row { display: flex; gap: 8px; }
         .landing .row > * { flex: 1; }
@@ -255,7 +267,12 @@ function LandingInner() {
             )}
           </>
         )}
-        <input className="input" type="email" placeholder="Email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
+        <input className="input" type="email" inputMode="email" autoCapitalize="none" autoCorrect="off" spellCheck={false} placeholder="name@host.com" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} style={{ fontFamily: 'system-ui, Segoe UI, Roboto, sans-serif', color: '#111827', letterSpacing: '0.2px' }} />
+        {mode === 'signup' && emailStatus && (
+          <p className="note" style={{ textAlign: 'left', marginTop: -4, color: emailStatus === 'Available' ? '#059669' : '#DC2626', fontWeight: 700 }}>
+            {emailStatus === 'Available' ? '✓ ' : ''}{emailStatus}
+          </p>
+        )}
         {mode === 'signup' && (
           <div className="row">
             <select className="input" value={form.day} onChange={e => setForm({ ...form, day: e.target.value })}>

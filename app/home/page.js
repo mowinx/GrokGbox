@@ -89,7 +89,7 @@ export default function HomeApp() {
     const { data: ev } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     const list = ev || [];
     const today = new Date().toISOString().slice(0, 10);
-    const active = list.filter(e => (!e.event_date || e.event_date >= today) && e.image_url);
+    const active = list.filter(e => (!e.event_date || e.event_date >= today) && e.image_url && e.active !== false && e.is_public);
     setEvents(active.filter(e => e.is_public));
     const seed = user.id.split('').reduce((n, c) => n + c.charCodeAt(0), 0);
     const shuffled = [...active].sort((a, b) => {
@@ -104,7 +104,7 @@ export default function HomeApp() {
     const { data: attending } = await supabase.from('event_attendees').select('event_id, events(*)').eq('user_id', user.id).eq('status', 'attending');
     setAttending((attending || []).map(a => a.events).filter(Boolean));
     const { data: camps } = await supabase.from('campaigns').select('*').eq('active', true);
-    setCampaigns((camps || []).filter(c => c.image_url));
+    setCampaigns((camps || []).filter(c => c.image_url && c.is_public !== false));
     const { data: joined } = await supabase.from('campaign_participants').select('campaign_id').eq('user_id', user.id);
     setJoinedIds((joined || []).map(j => j.campaign_id));
     const { data: cg } = await supabase.from('campaign_gifts').select('*');
@@ -350,10 +350,20 @@ export default function HomeApp() {
             {uploadPreview && <img src={uploadPreview} alt="" style={{ width: '100%', borderRadius: 12, margin: '8px 0' }} />}
             <label className="label">Event Title</label>
             <input className="input" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} placeholder="Emma's 10th Birthday Bash" />
-            <label className="label">Date</label>
-            <input className="input" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} />
-            <label className="label">Time</label>
-            <input className="input" type="time" value={eventForm.time} onChange={e => setEventForm(f => ({ ...f, time: e.target.value }))} />
+            {eventForm.type === 'birthday' && myEvents.some(e => e.event_type === 'birthday') && (
+              <div className="card">You already hosted your birthday. Edit it under myGifts.</div>
+            )}
+            {eventForm.type !== 'birthday' && (
+              <>
+                <label className="label">Date</label>
+                <input className="input" type="date" value={eventForm.date} onChange={e => setEventForm(f => ({ ...f, date: e.target.value }))} />
+                <label className="label">Time</label>
+                <input className="input" type="time" value={eventForm.time} onChange={e => setEventForm(f => ({ ...f, time: e.target.value }))} />
+              </>
+            )}
+            {eventForm.type === 'birthday' && (
+              <div className="card">Date is your birthday, {bdayLabel}. It runs all day.</div>
+            )}
             <label className="label">Location Type</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <button className={`btn btn-sm ${eventForm.locType === 'physical' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'physical' }))}>📍 Physical</button>
@@ -368,14 +378,15 @@ export default function HomeApp() {
             <label className="label">Description</label>
             <input className="input" value={eventForm.desc} onChange={e => setEventForm(f => ({ ...f, desc: e.target.value }))} placeholder="Join us for cake, games, and a day full of fun!" />
             <label className="label">Visibility</label>
-            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>🌐 Public — Anyone can view and join</div>
-              <div onClick={() => setEventForm(f => ({ ...f, isPublic: !f.isPublic }))} style={{ width: 44, height: 24, background: eventForm.isPublic ? '#DC2626' : '#E5E7EB', borderRadius: 12, position: 'relative', cursor: 'pointer' }}>
-                <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: eventForm.isPublic ? 22 : 2 }} />
-              </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button className={`btn btn-sm ${eventForm.isPublic ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, isPublic: true }))}>Public</button>
+              <button className={`btn btn-sm ${!eventForm.isPublic ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, isPublic: false }))}>Private</button>
             </div>
+            <p style={{ fontSize: 12, color: '#6B7280' }}>{eventForm.isPublic ? 'Shows on the home page.' : 'Only people with the link can see it.'}</p>
             <button className="btn" onClick={() => {
-              if (!eventForm.title || !eventForm.date) { alert('Add a title and a date'); return; }
+              if (eventForm.type === 'birthday' && myEvents.some(e => e.event_type === 'birthday')) { alert('You can only host your birthday once. Edit it under myGifts.'); return; }
+              if (!eventForm.title) { alert('Add a title'); return; }
+              if (eventForm.type !== 'birthday' && !eventForm.date) { alert('Add a date'); return; }
               if (!uploadPreview) { alert('Add a photo. Every event needs a picture.'); return; }
               setScreen('build-wishlist');
             }}>Next: Choose Wishlist Gifts</button>
@@ -387,16 +398,10 @@ export default function HomeApp() {
             <h1>myGifts</h1>
             <p className="subtitle">Events you are hosting. Tap to see gifts received.</p>
             {myEvents.map(ev => (
-              <div key={ev.id} className="card" onClick={async () => {
-                setSelectedEvent(ev);
-                if (supabase) {
-                  const { data } = await supabase.from('gifts').select('*, profiles(full_name)').eq('event_id', ev.id);
-                  setReceivedGifts(data || []);
-                }
-                setScreen('gifts-received');
-              }} style={{ cursor: 'pointer' }}>
+              <div key={ev.id} className="card" onClick={() => { setSelectedEvent(ev); setEventForm({ ...eventForm, title: ev.title, isPublic: ev.is_public, active: ev.active !== false }); setScreen('edit-event'); }} style={{ cursor: 'pointer', position: 'relative' }}>
+                <span className="tag tag-red" style={{ position: 'absolute', top: 12, right: 12 }}>{ev.event_type === 'birthday' ? 'Birthday' : ev.event_type === 'live' ? 'Live' : ev.event_type === 'video' ? 'Upload' : 'Event'}</span>
                 <strong>{ev.title}</strong>
-                <p style={{ fontSize: 13, color: '#6B7280' }}>{ev.event_date || 'Ongoing'}</p>
+                <p style={{ fontSize: 13, color: '#6B7280' }}>{ev.event_date || 'Ongoing'} · {ev.active === false ? 'Inactive' : 'Active'}</p>
               </div>
             ))}
             {!myEvents.length && <div className="card">You haven’t hosted an event yet.</div>}
@@ -548,7 +553,12 @@ export default function HomeApp() {
               <div>Name: <strong>{profile?.full_name || '—'}</strong></div>
               <div>Birthday: <strong>{bdayLabel}</strong></div>
               <div style={{ marginTop: 8 }}>Friends signed up</div>
-              <div style={{ fontSize: 32, fontWeight: 800, color: '#DC2626' }}>{referrals} / 10</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+                <div style={{ flex: 1, height: 10, background: '#F3F4F6', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ width: Math.min(100, (referrals / 10) * 100) + '%', height: '100%', background: '#DC2626' }} />
+                </div>
+                <strong>{referrals}/10</strong>
+              </div>
               <div style={{ fontSize: 13, color: referrals >= 10 ? '#059669' : '#6B7280' }}>
                 {referrals >= 10 ? 'You qualify for the free gift!' : `${10 - referrals} more to qualify`}
               </div>
@@ -569,7 +579,35 @@ export default function HomeApp() {
           </>
         )}
 
-        {screen === 'gifts-received' && selectedEvent && (
+        {screen === 'edit-event' && selectedEvent && (
+          <>
+            <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← myGifts</button>
+            <h1>Edit {selectedEvent.title}</h1>
+            <input className="input" value={eventForm.title} onChange={e => setEventForm(f => ({ ...f, title: e.target.value }))} />
+            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>{eventForm.active === false ? 'Inactive' : 'Active'}</div>
+              <div onClick={() => setEventForm(f => ({ ...f, active: f.active === false }))} style={{ width: 44, height: 24, background: eventForm.active !== false ? '#DC2626' : '#E5E7EB', borderRadius: 12, position: 'relative' }}>
+                <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: eventForm.active !== false ? 22 : 2 }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button className={`btn btn-sm ${eventForm.isPublic ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, isPublic: true }))}>Public</button>
+              <button className={`btn btn-sm ${!eventForm.isPublic ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, isPublic: false }))}>Private</button>
+            </div>
+            <button className="btn" onClick={async () => {
+              const { error } = await supabase.from('events').update({
+                title: eventForm.title, is_public: eventForm.isPublic, active: eventForm.active !== false,
+              }).eq('id', selectedEvent.id);
+              if (error) { alert(error.message); return; }
+              load(); setScreen(null);
+            }}>Save</button>
+            <button className="btn btn-outline" onClick={async () => {
+              const { data } = await supabase.from('gifts').select('*, profiles(full_name)').eq('event_id', selectedEvent.id);
+              setReceivedGifts(data || []);
+              setScreen('gifts-received');
+            }}>View gifts received</button>
+          </>
+        )}
           <>
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← myGifts</button>
             <h1>Gifts for {selectedEvent.title}</h1>
@@ -721,11 +759,14 @@ export default function HomeApp() {
             <button type="button" className="btn" onClick={async () => {
               if (!wishlist.length) { alert('Tap at least one gift to add it.'); return; }
               if (!supabase || !user) return;
+              const bdayDate = eventForm.type === 'birthday' && profile?.birthday_month
+                ? `${new Date().getFullYear()}-${String(profile.birthday_month).padStart(2,'0')}-${String(profile.birthday_day).padStart(2,'0')}`
+                : eventForm.date;
               const { data, error } = await supabase.from('events').insert({
                 host_id: user.id, title: eventForm.title, event_type: eventForm.type,
-                event_date: eventForm.date || null,
+                event_date: bdayDate || null,
                 location: eventForm.locType === 'virtual' ? 'Virtual' : eventForm.location,
-                is_public: eventForm.isPublic, share_code: Math.random().toString(36).slice(2, 8),
+                is_public: eventForm.isPublic, active: true, share_code: Math.random().toString(36).slice(2, 8),
                 image_url: uploadPreview,
               }).select().single();
               if (error || !data) { alert(error?.message || 'Could not create event'); return; }
@@ -780,11 +821,10 @@ export default function HomeApp() {
               <button className={`btn btn-sm ${eventForm.locType === 'physical' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'physical' }))}>Physical</button>
               <button className={`btn btn-sm ${eventForm.locType === 'virtual' ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, locType: 'virtual' }))}>Virtual</button>
             </div>
-            <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>Share with the public</div>
-              <div onClick={() => setEventForm(f => ({ ...f, isPublic: !f.isPublic }))} style={{ width: 44, height: 24, background: eventForm.isPublic ? '#DC2626' : '#E5E7EB', borderRadius: 12, position: 'relative', cursor: 'pointer' }}>
-                <div style={{ width: 20, height: 20, background: 'white', borderRadius: '50%', position: 'absolute', top: 2, left: eventForm.isPublic ? 22 : 2 }} />
-              </div>
+            <label className="label">Visibility</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <button className={`btn btn-sm ${eventForm.isPublic ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, isPublic: true }))}>Public</button>
+              <button className={`btn btn-sm ${!eventForm.isPublic ? '' : 'btn-outline'}`} onClick={() => setEventForm(f => ({ ...f, isPublic: false }))}>Private</button>
             </div>
             <input type="file" accept="image/*" onChange={e => resizeImage(e.target.files?.[0], setUploadPreview)} />
             {uploadPreview && <img src={uploadPreview} alt="Preview" style={{ width: '100%', borderRadius: 12, margin: '8px 0' }} />}
@@ -863,6 +903,7 @@ export default function HomeApp() {
               const { data, error } = await supabase.from('campaigns').insert({
                 host_id: user.id, title: campaignForm.title, image_url: uploadPreview, end_date: end,
                 share_target: Number(campaignForm.shareTarget) || 5, share_code: code,
+                is_public: eventForm.isPublic,
               }).select().single();
               if (error) { alert(error.message); return; }
               await supabase.from('campaign_prizes').insert(campaignForm.prizes.map((id, i) => {
