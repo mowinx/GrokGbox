@@ -199,6 +199,24 @@ export default function HomeApp() {
   function openEvent(ev) {
     setSelectedEvent(ev);
     setHostName(ev.profiles?.username || '');
+    if (supabase && ev.host_id) {
+      supabase.from('profiles').select('username').eq('id', ev.host_id).single().then(({ data }) => setHostName(data?.username || ''));
+    }
+    setScreen('event-detail');
+    setCart([]);
+  }
+
+  async function openReceived(ev) {
+    setSelectedEvent(ev);
+    const { data } = await supabase.from('gifts').select('*, products(name, price, image_url)').eq('event_id', ev.id);
+    const ids = [...new Set((data || []).map(g => g.sender_id).filter(Boolean))];
+    const { data: people } = ids.length ? await supabase.from('profiles').select('id, username').in('id', ids) : { data: [] };
+    const byId = Object.fromEntries((people || []).map(p => [p.id, p.username]));
+    setReceivedGifts((data || []).map(g => ({ ...g, from: g.is_anonymous ? 'Anonymous' : (byId[g.sender_id] || 'user') })));
+    setScreen('gifts-received');
+  }
+    setSelectedEvent(ev);
+    setHostName(ev.profiles?.username || '');
     if (supabase && ev.host_id && !ev.profiles?.username) {
       supabase.from('profiles').select('username').eq('id', ev.host_id).single().then(({ data }) => setHostName(data?.username || ''));
     }
@@ -627,11 +645,7 @@ export default function HomeApp() {
               if (error) { alert(error.message); return; }
               load(); setScreen(null);
             }}>Save</button>
-            <button className="btn btn-outline" onClick={async () => {
-              const { data } = await supabase.from('gifts').select('*, profiles(full_name)').eq('event_id', selectedEvent.id);
-              setReceivedGifts(data || []);
-              setScreen('gifts-received');
-            }}>View gifts received</button>
+            <button className="btn btn-outline" onClick={() => openReceived(selectedEvent)}>View gifts received</button>
           </>
         )}
         {screen === 'gifts-received' && selectedEvent && (
@@ -639,17 +653,19 @@ export default function HomeApp() {
             <button onClick={() => setScreen(null)} style={{ background: 'none', border: 'none', color: '#DC2626', fontWeight: 600 }}>← myGifts</button>
             <h1>Gifts for {selectedEvent.title}</h1>
             {receivedGifts.length ? receivedGifts.map(g => (
-              <div key={g.id} className="card">
-                <strong>{g.is_cash ? `Cash ₦${Number(g.amount || 0).toLocaleString()}` : (g.products?.name || 'Gift item')}</strong>
-                <div style={{ fontSize: 13, color: '#6B7280' }}>{g.is_anonymous ? 'Anonymous' : (g.profiles?.full_name || 'Named')}</div>
-                <span className="tag tag-red">{g.status === 'ready' ? 'Redeem Now' : g.status === 'delivered' ? 'Redeemed' : 'Not Redeemed'}</span>
+              <div key={g.id} className="card" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                {g.products?.image_url && <img src={g.products.image_url} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8 }} />}
+                <div>
+                  <strong>{g.is_cash ? `Cash ₦${Number(g.amount || 0).toLocaleString()}` : `${g.products?.name || 'Gift'} - ₦${Number(g.products?.price || g.amount || 0).toLocaleString()}`}</strong>
+                  <div>From - {g.from || 'user'}</div>
+                  <div>{g.status === 'ready' ? 'Redeem Now' : g.status === 'delivered' ? 'Redeemed' : 'Not Redeemed'}</div>
+                </div>
               </div>
             )) : <div className="card">No gifts yet.</div>}
-            <button className="btn" disabled={!receivedGifts.some(g => g.status === 'ready')} onClick={async () => {
+            <button className="btn" disabled={!receivedGifts.some(g => g.status === 'ready')} style={{ opacity: receivedGifts.some(g => g.status === 'ready') ? 1 : 0.5 }} onClick={async () => {
               const ready = receivedGifts.filter(g => g.status === 'ready');
               for (const g of ready) await supabase.from('gifts').update({ status: 'delivered' }).eq('id', g.id);
-              const { data } = await supabase.from('gifts').select('*, profiles(full_name), products(name)').eq('event_id', selectedEvent.id);
-              setReceivedGifts(data || []);
+              openReceived(selectedEvent);
             }}>Redeem gift items</button>
           </>
         )}

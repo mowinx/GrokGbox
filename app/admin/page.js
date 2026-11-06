@@ -55,7 +55,20 @@ export default function Admin() {
     reader.readAsDataURL(file);
   }
 
-  async function openGift(product) {
+  async function loadEvent(e) {
+    let host = e.profiles?.username;
+    if (!host && e.host_id) {
+      const { data } = await supabase.from('profiles').select('username, full_name').eq('id', e.host_id).single();
+      host = data?.username || data?.full_name;
+    }
+    const { data: gifts } = await supabase.from('gifts').select('*, products(name, price, image_url)').eq('event_id', e.id);
+    const ids = [...new Set((gifts || []).map(g => g.sender_id).filter(Boolean))];
+    const { data: people } = ids.length ? await supabase.from('profiles').select('id, username, full_name').in('id', ids) : { data: [] };
+    const byId = Object.fromEntries((people || []).map(p => [p.id, p]));
+    setSelected({ ...e, hostUser: host || 'host' });
+    setEventGifts((gifts || []).map(g => ({ ...g, sender: byId[g.sender_id] })));
+    setView('event-summary');
+  }
     setSelected(product);
     const { data: wish } = await supabase.from('wishlist_items').select('event_id, events(title, host_id, profiles(full_name))').eq('product_id', product.id);
     const eventsMap = {};
@@ -164,19 +177,14 @@ export default function Admin() {
             <h1>Events</h1>
             <h2>Active</h2>
             {events.filter(e => !e.event_date || e.event_date >= today).map(e => (
-              <div key={e.id} className="card" onClick={async () => {
-                setSelected(e);
-                const { data } = await supabase.from('gifts').select('*, profiles(full_name, username), products(name)').eq('event_id', e.id);
-                setEventGifts(data || []);
-                setView('event-summary');
-              }}>
+              <div key={e.id} className="card" onClick={() => loadEvent(e)}>
                 <strong>{e.title}</strong>
-                <div>{e.event_date || 'No date'} · @{e.profiles?.username || 'host'}</div>
+                <div>{e.event_date || 'No date'} · @{e.hostUser || e.profiles?.username || 'host'}</div>
               </div>
             ))}
             <h2>Past</h2>
             {events.filter(e => e.event_date && e.event_date < today).map(e => (
-              <div key={e.id} className="card" onClick={() => { setSelected(e); setView('event-summary'); }}>
+              <div key={e.id} className="card" onClick={() => loadEvent(e)}>
                 <strong>{e.title}</strong>
                 <div>{e.event_date} · ended</div>
               </div>
@@ -188,7 +196,7 @@ export default function Admin() {
             <button onClick={() => setView('events')}>← Events</button>
             <h1>{selected.title}</h1>
             <div className="card">
-              <div>Host: {selected.profiles?.full_name} @{selected.profiles?.username || 'host'}</div>
+              <div>Host: @{selected.hostUser || selected.profiles?.username || 'host'}</div>
               <div>Date: {selected.event_date || '—'}</div>
               <div>Type: {selected.event_type}</div>
               <div>Public: {selected.is_public ? 'Yes' : 'No'}</div>
@@ -198,15 +206,17 @@ export default function Admin() {
               <div key={g.id} className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <strong>{g.is_cash ? `Cash ₦${Number(g.amount||0).toLocaleString()}` : (g.products?.name || 'Gift')}</strong>
-                  <div>From {g.is_anonymous ? 'Anonymous' : '@' + (g.profiles?.username || g.profiles?.full_name || 'user')}</div>
-                  <div>{g.status || 'not_redeemed'}</div>
+                  <div>From: {g.is_anonymous ? 'Anonymous' : (g.sender?.username || g.profiles?.username || 'user')}</div>
+                  <div>Status: {g.status === 'ready' ? 'Ready' : g.status === 'delivered' ? 'Delivered' : 'Not Redeemed'}</div>
                 </div>
-                <button className="btn btn-sm" onClick={async () => {
-                  const next = g.status === 'ready' ? 'not_redeemed' : 'ready';
-                  await supabase.from('gifts').update({ status: next }).eq('id', g.id);
-                  const { data } = await supabase.from('gifts').select('*, profiles(full_name, username), products(name)').eq('event_id', selected.id);
-                  setEventGifts(data || []);
-                }}>{g.status === 'ready' ? 'Ready for pickup' : 'Mark ready'}</button>
+                {g.status !== 'ready' && g.status !== 'delivered' && (
+                  <button className="btn btn-sm" onClick={async () => {
+                    await supabase.from('gifts').update({ status: 'ready' }).eq('id', g.id);
+                    loadEvent(selected);
+                  }}>Mark ready</button>
+                )}
+                {g.status === 'ready' && <span className="tag tag-red">Ready</span>}
+                {g.status === 'delivered' && <span className="tag tag-green">Delivered</span>}
               </div>
             ))}
             {!eventGifts.length && <div className="card">No gifts yet.</div>}
