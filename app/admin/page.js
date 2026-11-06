@@ -69,6 +69,8 @@ export default function Admin() {
     setEventGifts((gifts || []).map(g => ({ ...g, sender: byId[g.sender_id] })));
     setView('event-summary');
   }
+
+  async function openGift(product) {
     setSelected(product);
     const { data: wish } = await supabase.from('wishlist_items').select('event_id, events(title, host_id, profiles(full_name))').eq('product_id', product.id);
     const eventsMap = {};

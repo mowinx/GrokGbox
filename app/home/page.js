@@ -215,14 +215,6 @@ export default function HomeApp() {
     setReceivedGifts((data || []).map(g => ({ ...g, from: g.is_anonymous ? 'Anonymous' : (byId[g.sender_id] || 'user') })));
     setScreen('gifts-received');
   }
-    setSelectedEvent(ev);
-    setHostName(ev.profiles?.username || '');
-    if (supabase && ev.host_id && !ev.profiles?.username) {
-      supabase.from('profiles').select('username').eq('id', ev.host_id).single().then(({ data }) => setHostName(data?.username || ''));
-    }
-    setScreen('event-detail');
-    setCart([]);
-  }
 
   async function openCampaign(c) {
     setSelectedCampaign(c);
