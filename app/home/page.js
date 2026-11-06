@@ -104,8 +104,6 @@ export default function HomeApp() {
     setMyEvents(mine || []);
     const { data: attending } = await supabase.from('event_attendees').select('event_id, events(*)').eq('user_id', user.id).eq('status', 'attending');
     setAttending((attending || []).map(a => a.events).filter(Boolean));
-    const { data: camps } = await supabase.from('campaigns').select('*').eq('active', true);
-    setCampaigns((camps || []).filter(c => c.image_url && c.is_public !== false));
     const { data: joined } = await supabase.from('campaign_participants').select('campaign_id').eq('user_id', user.id);
     setJoinedIds((joined || []).map(j => j.campaign_id));
     const { data: cg } = await supabase.from('campaign_gifts').select('*');
