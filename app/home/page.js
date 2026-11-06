@@ -94,7 +94,10 @@ export default function HomeApp() {
     const today = new Date().toISOString().slice(0, 10);
     const active = list.filter(e => e.is_public && e.active !== false && (!e.event_date || e.event_date >= today));
     setEvents(active);
-    const ordered = [...active].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const { data: camps } = await supabase.from('campaigns').select('*').eq('active', true);
+    const publicCamps = (camps || []).filter(c => c.is_public !== false).map(c => ({ ...c, kind: 'campaign', event_type: 'campaign' }));
+    setCampaigns(publicCamps);
+    const ordered = [...active, ...publicCamps].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     feedBase.current = ordered;
     setFeed(ordered);
     const { data: mine } = await supabase.from('events').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
@@ -254,18 +257,18 @@ export default function HomeApp() {
               const el = e.currentTarget;
               const half = el.scrollHeight / 2;
               if (half > el.clientHeight && el.scrollTop >= half) el.scrollTop = el.scrollTop - half;
-            }} style={{ height: 'calc(100vh - 128px)', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
+            }} style={{ height: 'calc(100vh - 128px)', overflowY: 'auto', scrollSnapType: 'y mandatory', scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             {feed.map((item, i) => (
               <div key={item.id + '-' + i} onDoubleClick={() => handleDoubleTap(item.id)} style={{ height: 'calc(100vh - 128px)', scrollSnapAlign: 'start', position: 'relative', background: '#111', color: 'white' }}>
                 {item.image_url ? <img src={item.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#111' }} /> : <div style={{ position: 'absolute', inset: 0, background: '#7F1D1D' }} />}
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 45%, rgba(0,0,0,.7))' }} />
                 <div style={{ position: 'absolute', left: 16, right: 16, bottom: 20, zIndex: 2 }}>
-                  <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{item.event_type === 'video' ? 'UPLOAD' : item.event_type === 'live' ? 'LIVE' : item.event_type === 'birthday' ? 'BIRTHDAY' : 'EVENT'}</span>
+                  <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{item.kind === 'campaign' ? 'CAMPAIGN' : item.event_type === 'video' ? 'UPLOAD' : item.event_type === 'live' ? 'LIVE' : item.event_type === 'birthday' ? 'BIRTHDAY' : 'EVENT'}</span>
                   <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
-                  <div style={{ fontSize: 13, opacity: 0.9 }}>{item.event_date || ''} {item.location ? '• ' + item.location : ''}</div>
+                  <div style={{ fontSize: 13, opacity: 0.9 }}>{item.event_date || item.end_date || ''} {item.location ? '• ' + item.location : ''}</div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                    <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(item)}>View Event</button>
-                    <button className="btn btn-sm" style={{ background: giftedEvents[item.id] ? '#059669' : 'white', color: giftedEvents[item.id] ? 'white' : '#DC2626' }} onClick={() => openEvent(item)}>Gift</button>
+                    <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => item.kind === 'campaign' ? (setSelectedCampaign(item), setScreen('campaign-rules')) : openEvent(item)}>{item.kind === 'campaign' ? 'View campaign' : 'View Event'}</button>
+                    {item.kind !== 'campaign' && <button className="btn btn-sm" style={{ background: giftedEvents[item.id] ? '#059669' : '#DC2626', color: 'white' }} onClick={() => openEvent(item)}>Gift</button>}
                     <button className="btn btn-sm" onClick={() => toggleLike(item.id)}>♥ {likes[item.id] || 0}</button>
                   </div>
                 </div>
@@ -1042,7 +1045,7 @@ export default function HomeApp() {
           ['gifts', <svg key="g" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>, 'myGifts'],
           ['profile', <svg key="p" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, 'Profile'],
         ].map(([k, icon, label]) => (
-          <button key={k} className={`nav-item ${tab === k && !screen ? 'active' : ''}`} onClick={() => { setTab(k); setScreen(null); }}>
+          <button key={k} className={`nav-item ${tab === k && !screen ? 'active' : ''}`} onClick={() => { setTab(k); setScreen(null); if (k === 'home') load(); }}>
             {k === 'create' ? <div className="center-plus">+</div> : <div className="icon">{icon}</div>}
             <span>{label}</span>
           </button>
