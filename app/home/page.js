@@ -92,16 +92,11 @@ export default function HomeApp() {
     const { data: ev } = await supabase.from('events').select('*').order('created_at', { ascending: false });
     const list = ev || [];
     const today = new Date().toISOString().slice(0, 10);
-    const active = list.filter(e => (!e.event_date || e.event_date >= today) && e.image_url && e.active !== false && e.is_public);
-    setEvents(active.filter(e => e.is_public));
-    const seed = user.id.split('').reduce((n, c) => n + c.charCodeAt(0), 0);
-    const shuffled = [...active].sort((a, b) => {
-      const ha = (a.id.charCodeAt(0) + seed) % 97;
-      const hb = (b.id.charCodeAt(0) + seed) % 97;
-      return ha - hb;
-    });
-    feedBase.current = shuffled;
-    setFeed(shuffled);
+    const active = list.filter(e => e.is_public && e.active !== false && (!e.event_date || e.event_date >= today));
+    setEvents(active);
+    const ordered = [...active].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    feedBase.current = ordered;
+    setFeed(ordered);
     const { data: mine } = await supabase.from('events').select('*').eq('host_id', user.id).order('created_at', { ascending: false });
     setMyEvents(mine || []);
     const { data: attending } = await supabase.from('event_attendees').select('event_id, events(*)').eq('user_id', user.id).eq('status', 'attending');
@@ -260,30 +255,19 @@ export default function HomeApp() {
               const half = el.scrollHeight / 2;
               if (half > el.clientHeight && el.scrollTop >= half) el.scrollTop = el.scrollTop - half;
             }} style={{ height: 'calc(100vh - 128px)', overflowY: 'auto', scrollSnapType: 'y mandatory' }}>
-            {[...feed, ...campaigns.map(c => ({ ...c, kind: 'campaign' })), ...feed, ...campaigns.map(c => ({ ...c, kind: 'campaign' }))].filter(item => item.image_url).map((item, i) => (
-              <div key={(item.id || 'x') + '-' + i} onDoubleClick={() => !item.kind && handleDoubleTap(item.id)} style={{ height: 'calc(100vh - 128px)', scrollSnapAlign: 'start', position: 'relative', background: '#111', color: 'white' }}>
-                <img src={item.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#111' }} />
+            {feed.map((item, i) => (
+              <div key={item.id + '-' + i} onDoubleClick={() => handleDoubleTap(item.id)} style={{ height: 'calc(100vh - 128px)', scrollSnapAlign: 'start', position: 'relative', background: '#111', color: 'white' }}>
+                {item.image_url ? <img src={item.image_url} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#111' }} /> : <div style={{ position: 'absolute', inset: 0, background: '#7F1D1D' }} />}
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(transparent 45%, rgba(0,0,0,.7))' }} />
                 <div style={{ position: 'absolute', left: 16, right: 16, bottom: 20, zIndex: 2 }}>
-                  {item.kind === 'campaign' ? (
-                    <>
-                      <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{joinedIds.includes(item.id) ? 'JOINED' : 'CAMPAIGN'}</span>
-                      <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
-                      <div style={{ fontWeight: 700 }}>{item.end_date ? Math.max(0, Math.ceil((new Date(item.end_date) - new Date()) / 86400000)) : 0} days to birthday</div>
-                      <button className="btn btn-sm" style={{ marginTop: 10, background: 'white', color: '#DC2626' }} onClick={() => { setSelectedCampaign(item); setScreen('campaign-rules'); }}>View campaign</button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{item.event_type === 'video' ? 'UPLOAD' : item.event_type === 'live' ? 'LIVE' : 'EVENT'}</span>
-                      <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
-                      <div style={{ fontSize: 13, opacity: 0.9 }}>{item.event_date || ''} {item.location ? '• ' + item.location : ''}</div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                        <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(item)}>View Event</button>
-                        <button className="btn btn-sm" style={{ background: giftedEvents[item.id] ? '#059669' : 'white', color: giftedEvents[item.id] ? 'white' : '#DC2626' }} onClick={() => openEvent(item)}>Gift</button>
-                        <button className="btn btn-sm" onClick={() => toggleLike(item.id)}>♥ {likes[item.id] || 0}</button>
-                      </div>
-                    </>
-                  )}
+                  <span className="tag" style={{ background: '#fff', color: '#DC2626' }}>{item.event_type === 'video' ? 'UPLOAD' : item.event_type === 'live' ? 'LIVE' : item.event_type === 'birthday' ? 'BIRTHDAY' : 'EVENT'}</span>
+                  <div style={{ fontWeight: 800, fontSize: 20, marginTop: 8 }}>{item.title}</div>
+                  <div style={{ fontSize: 13, opacity: 0.9 }}>{item.event_date || ''} {item.location ? '• ' + item.location : ''}</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <button className="btn btn-sm" style={{ background: 'white', color: '#DC2626' }} onClick={() => openEvent(item)}>View Event</button>
+                    <button className="btn btn-sm" style={{ background: giftedEvents[item.id] ? '#059669' : 'white', color: giftedEvents[item.id] ? 'white' : '#DC2626' }} onClick={() => openEvent(item)}>Gift</button>
+                    <button className="btn btn-sm" onClick={() => toggleLike(item.id)}>♥ {likes[item.id] || 0}</button>
+                  </div>
                 </div>
               </div>
             ))}
